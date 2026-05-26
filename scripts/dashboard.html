@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Work Monitor — PECO</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --yellow:#FCB900;--orange:#FF6900;
+    --bg:#F7F8FA;--surface:#FFFFFF;
+    --border:#E4E7EB;--border-strong:#CBD2DA;
+    --text:#111827;--muted:#6B7280;--faint:#9CA3AF;
+    --green:#059669;--red:#DC2626;--blue:#2563EB;
+    --radius:8px;--shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px}
+  .logo-mark{width:28px;height:28px;background:var(--yellow);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .daemon-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid var(--border)}
+  .daemon-pill.on{background:#ECFDF5;color:var(--green);border-color:#A7F3D0}
+  .daemon-pill.off{background:#FEF2F2;color:var(--red);border-color:#FECACA}
+  .pulse{width:7px;height:7px;border-radius:50%;background:currentColor}
+  .pulse.on{animation:blink 1.6s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+  nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex}
+  .tab{padding:12px 16px;font-size:13px;font-weight:500;color:var(--muted);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;transition:.15s;white-space:nowrap}
+  .tab.active{color:var(--text);border-bottom-color:var(--yellow);font-weight:600}
+  .tab:hover:not(.active){color:var(--text);background:#F9FAFB}
+  main{padding:20px 24px;max-width:1100px;margin:0 auto}
+  .page{display:none}.page.active{display:block}
+  .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
+  .stat-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);margin-bottom:6px}
+  .stat-value{font-size:28px;font-weight:800;color:var(--text);line-height:1}
+  .stat-sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .stat.highlight{border-color:var(--yellow);background:linear-gradient(135deg,#FFFBEB 0%,#FFF 60%)}
+  .stat.highlight .stat-value{color:#B45309}
+  .section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);margin-bottom:14px}
+  .cat-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .cat-row:last-child{margin-bottom:0}
+  .cat-name{width:148px;font-size:12px;font-weight:500;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-wrap{flex:1;height:8px;background:#F3F4F6;border-radius:99px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:99px;transition:width .4s ease}
+  .cat-time{width:48px;text-align:right;font-size:12px;font-weight:600;flex-shrink:0}
+  .cat-pct{width:34px;text-align:right;font-size:11px;color:var(--faint);flex-shrink:0}
+  .act-table{width:100%;border-collapse:collapse;font-size:13px}
+  .act-table th{text-align:left;padding:8px 10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);border-bottom:1px solid var(--border);background:var(--bg)}
+  .act-table td{padding:8px 10px;border-bottom:1px solid #F3F4F6;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act-table tr:last-child td{border-bottom:none}
+  .act-table tr:hover td{background:#FAFAFA}
+  .cat-tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600}
+  .private-tag{font-size:11px;color:var(--faint);font-style:italic}
+  .score-wrap{display:flex;align-items:center;gap:24px;padding:4px 0}
+  .score-ring{position:relative;width:88px;height:88px;flex-shrink:0}
+  .score-ring canvas{position:absolute;top:0;left:0}
+  .score-num{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;font-weight:800}
+  .score-detail{flex:1}
+  .score-summary{font-size:15px;font-weight:600;margin-bottom:4px}
+  .score-sub{font-size:13px;color:var(--muted)}
+  .suggestion{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #F3F4F6}
+  .suggestion:last-child{border-bottom:none}
+  .sug-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;margin-top:1px}
+  .sug-body{flex:1;min-width:0}
+  .sug-title{font-weight:600;font-size:13px;margin-bottom:2px}
+  .sug-agent{font-size:12px;color:var(--muted)}
+  .sug-right{text-align:right;flex-shrink:0}
+  .sug-save{font-size:13px;font-weight:700;color:var(--green)}
+  .sug-cost{font-size:11px;color:var(--faint)}
+  .type-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+  .tb-automation{background:#DBEAFE;color:#1D4ED8}
+  .tb-batch{background:#EDE9FE;color:#6D28D9}
+  .tb-ai_assist{background:#D1FAE5;color:#065F46}
+  .tb-eliminate{background:#FEE2E2;color:#991B1B}
+  .privacy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .lock-list{list-style:none}
+  .lock-list li{padding:7px 0;border-bottom:1px solid #F3F4F6;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .lock-list li:last-child{border-bottom:none}
+  .lock-list li::before{content:"\1F512";font-size:11px}
+  .btn{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+  .btn-primary{background:var(--yellow);color:#000}.btn-primary:hover{background:#E8AB00}
+  .btn-primary:disabled{opacity:.45;cursor:default}
+  .btn-danger{background:#FEE2E2;color:var(--red);border:1px solid #FECACA}
+  .btn-green{background:#D1FAE5;color:var(--green);border:1px solid #A7F3D0}
+  .action-bar{display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
+  .settings-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #F3F4F6}
+  .settings-row:last-child{border-bottom:none}
+  .settings-label{font-size:13px;font-weight:600}
+  .settings-desc{font-size:12px;color:var(--muted);margin-top:2px}
+  code{background:var(--bg);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-size:12px;font-family:ui-monospace,monospace}
+  .empty{padding:40px;text-align:center;color:var(--faint);font-size:13px}
+  @media(max-width:700px){
+    nav{overflow-x:auto}.stat-row{grid-template-columns:1fr 1fr}
+    #mainGrid{grid-template-columns:1fr !important}
+    .cat-name{width:100px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-mark">&#x1F4CA;</div>
+    Work Monitor
+  </div>
+  <div id="daemonPill" class="daemon-pill off">
+    <div class="pulse off"></div>確認中
+  </div>
+</header>
+<nav>
+  <button class="tab active" onclick="showPage('today',this)">今日</button>
+  <button class="tab" onclick="showPage('week',this)">週間</button>
+  <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
+  <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
+  <button class="tab" onclick="showPage('settings',this)">設定</button>
+</nav>
+<main>
+<div id="page-today" class="page active">
+  <div class="stat-row" id="statRow"></div>
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px" id="mainGrid">
+    <div class="section"><div class="section-title">カテゴリ別</div><div id="barRows"></div></div>
+    <div class="section"><div class="section-title">時間分布</div><div style="position:relative;height:200px"><canvas id="pieChart"></canvas></div></div>
+  </div>
+  <div class="section">
+    <div class="section-title">直近の活動</div>
+    <table class="act-table">
+      <thead><tr><th>時刻</th><th>アプリ</th><th>ウィンドウ</th><th>カテゴリ</th><th style="text-align:right">時間</th></tr></thead>
+      <tbody id="actBody"></tbody>
+    </table>
+  </div>
+</div>
+<div id="page-week" class="page">
+  <div class="section" style="margin-bottom:16px">
+    <div class="section-title">過去7日 カテゴリ別（分）</div>
+    <div style="height:240px;position:relative"><canvas id="weekChart"></canvas></div>
+  </div>
+  <div class="section">
+    <div class="section-title">効率スコア推移</div>
+    <div style="height:140px;position:relative"><canvas id="scoreChart"></canvas></div>
+  </div>
+</div>
+<div id="page-insight" class="page">
+  <div class="action-bar">
+    <button class="btn btn-primary" id="reportBtn" onclick="generateReport()">&#x25B6; 今すぐ日報生成 &amp; Slack送信</button>
+    <span id="reportStatus" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+  <div id="insightContent"></div>
+</div>
+<div id="page-privacy" class="page">
+  <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400E">
+    &#x1F512; 以下のアプリ・URLはウィンドウタイトルとURLを記録しません。時間のみ計測します。
+  </div>
+  <div class="privacy-grid">
+    <div class="section"><div class="section-title">ブロック済みアプリ</div><ul class="lock-list" id="blockedApps"></ul></div>
+    <div class="section"><div class="section-title">ブロック済みURLパターン</div><ul class="lock-list" id="blockedUrls"></ul></div>
+    <div class="section"><div class="section-title">自動マスクパターン</div><ul class="lock-list" id="sanitizedPats"></ul></div>
+  </div>
+</div>
+<div id="page-settings" class="page">
+  <div class="section" style="margin-bottom:16px">
+    <div class="section-title">デーモン制御</div>
+    <div class="settings-row">
+      <div><div class="settings-label">監視デーモン</div><div class="settings-desc">10秒ごとにアクティブウィンドウを記録</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-green" onclick="startDaemon()">&#x25B6; 開始</button>
+        <button class="btn btn-danger" onclick="stopDaemon()">&#x25A0; 停止</button>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">データ管理</div>
+    <div class="settings-row">
+      <div><div class="settings-label">今日のデータをリセット</div><div class="settings-desc">本日分の活動記録をすべて削除します</div></div>
+      <button class="btn btn-danger" onclick="resetToday()">削除</button>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">完全アンインストール</div><div class="settings-desc">ターミナルで <code>npm run uninstall</code> を実行</div></div>
+      <span style="font-size:12px;color:var(--faint)">ターミナルで実行</span>
+    </div>
+  </div>
+</div>
+</main>
+<script>
+const CAT={
+  core_dev:{label:'&#x2699;&#xFE0F; コア開発',color:'#FCB900'},
+  communication:{label:'&#x1F4AC; コミュニケーション',color:'#3B82F6'},
+  meeting:{label:'&#x1F4F9; ミーティング',color:'#7C3AED'},
+  research:{label:'&#x1F50D; 調査・リサーチ',color:'#10B981'},
+  admin:{label:'&#x1F5C2; 管理・事務',color:'#9CA3AF'},
+  design:{label:'&#x1F3A8; デザイン',color:'#F472B6'},
+  ai_tool:{label:'&#x1F916; AIツール',color:'#FF6900'},
+  entertainment:{label:'&#x1F3AE; エンタメ',color:'#E879F9'},
+  idle:{label:'&#x1F634; アイドル',color:'#D1D5DB'},
+  other:{label:'&#x2753; その他',color:'#CBD5E1'},
+};
+let pieChart,weekChart,scoreChart;
+
+function fmt(sec){const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);return h>0?h+'h'+m+'m':m+'m';}
+function pct(a,b){return b>0?Math.round(a/b*100):0;}
+
+function showPage(name,btn){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
+  document.getElementById('page-'+name).classList.add('active');
+  if(btn)btn.classList.add('active');
+  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy};
+  if(loaders[name])loaders[name]();
+}
+
+async function checkStatus(){
+  const r=await fetch('/api/status').then(function(r){return r.json();});
+  const pill=document.getElementById('daemonPill');
+  if(r.running){
+    pill.className='daemon-pill on';
+    pill.innerHTML='<div class="pulse on"></div>監視中';
+  }else{
+    pill.className='daemon-pill off';
+    pill.innerHTML='<div class="pulse off"></div>停止中';
+  }
+}
+
+async function loadToday(){
+  const d=await fetch('/api/today').then(function(r){return r.json();});
+  const summary=d.summary,activities=d.activities;
+  const total=summary.total_tracked_seconds;
+  const core=(summary.categories.find(function(c){return c.category==='core_dev';})||{}).total_seconds||0;
+  document.getElementById('statRow').innerHTML=
+    '<div class="stat highlight"><div class="stat-label">コア開発</div><div class="stat-value">'+fmt(core)+'</div><div class="stat-sub">'+pct(core,total)+'% of '+fmt(total)+'</div></div>'+
+    '<div class="stat"><div class="stat-label">合計追跡</div><div class="stat-value">'+fmt(total)+'</div><div class="stat-sub">アイドル除く</div></div>'+
+    '<div class="stat"><div class="stat-label">カテゴリ数</div><div class="stat-value">'+summary.categories.length+'</div><div class="stat-sub">今日</div></div>'+
+    '<div class="stat"><div class="stat-label">アイドル</div><div class="stat-value">'+fmt(summary.idle_seconds)+'</div><div class="stat-sub">5分以上無操作</div></div>';
+
+  var barHtml=summary.categories.map(function(c){
+    var p=pct(c.total_seconds,total);
+    var col=(CAT[c.category]||{}).color||'#CBD5E1';
+    var lbl=(CAT[c.category]||{}).label||c.category;
+    return '<div class="cat-row"><div class="cat-name">'+lbl+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+p+'%;background:'+col+'"></div></div><div class="cat-time">'+fmt(c.total_seconds)+'</div><div class="cat-pct">'+p+'%</div></div>';
+  }).join('');
+  document.getElementById('barRows').innerHTML=barHtml||'<div class="empty">記録なし</div>';
+
+  if(pieChart)pieChart.destroy();
+  if(summary.categories.length>0){
+    pieChart=new Chart(document.getElementById('pieChart'),{
+      type:'doughnut',
+      data:{labels:summary.categories.map(function(c){return (CAT[c.category]||{}).label||c.category;}),
+        datasets:[{data:summary.categories.map(function(c){return Math.round(c.total_seconds/60);}),
+          backgroundColor:summary.categories.map(function(c){return (CAT[c.category]||{}).color||'#CBD5E1';}),
+          borderWidth:0,hoverOffset:4}]},
+      options:{plugins:{legend:{display:false}},cutout:'68%',animation:{duration:400}},
+    });
+  }
+
+  var rows=activities.slice(0,40).map(function(a){
+    var t=new Date(a.start_time).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+    var title=a.window_title==='[非表示]'?'<span class="private-tag">&#x1F512; 非表示</span>':(a.window_title?a.window_title.slice(0,45):'');
+    var col=(CAT[a.category]||{}).color||'#CBD5E1';
+    var lbl=(CAT[a.category]||{}).label||a.category;
+    return '<tr><td style="color:var(--muted);width:52px">'+t+'</td><td style="font-weight:500">'+a.app_name+'</td><td style="color:var(--muted)">'+title+'</td><td><span class="cat-tag" style="background:'+col+'20;color:'+col+'">'+lbl+'</span></td><td style="text-align:right;color:var(--muted);width:48px">'+fmt(a.duration_seconds)+'</td></tr>';
+  }).join('');
+  document.getElementById('actBody').innerHTML=rows||'<tr><td colspan="5" class="empty">記録なし</td></tr>';
+}
+
+async function loadWeek(){
+  const days=await fetch('/api/week').then(function(r){return r.json();});
+  const labels=days.map(function(d){return d.date.slice(5).replace('-','/');});
+  const keys=['core_dev','communication','meeting','research','admin','ai_tool','other'];
+  const datasets=keys.map(function(k){
+    return {label:(CAT[k]||{}).label||k,
+      data:days.map(function(d){var c=d.categories.find(function(c){return c.category===k;});return c?Math.round(c.total_seconds/60):0;}),
+      backgroundColor:(CAT[k]||{}).color||'#CBD5E1',stack:'s',borderWidth:0,borderRadius:2};
+  });
+  if(weekChart)weekChart.destroy();
+  weekChart=new Chart(document.getElementById('weekChart'),{
+    type:'bar',data:{labels:labels,datasets:datasets},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:11},color:'#6B7280'}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:'#9CA3AF',font:{size:11}}},
+        y:{stacked:true,grid:{color:'#F3F4F6'},ticks:{color:'#9CA3AF',callback:function(v){return v+'m';}}}},animation:{duration:300}},
+  });
+  const scoreData=await Promise.all(days.map(function(d){return fetch('/api/insight/'+d.date).then(function(r){return r.json();});}));
+  const scores=scoreData.map(function(s){return s.efficiency_score||null;});
+  if(scoreChart)scoreChart.destroy();
+  scoreChart=new Chart(document.getElementById('scoreChart'),{
+    type:'line',
+    data:{labels:labels,datasets:[{label:'効率スコア',data:scores,borderColor:'#FCB900',backgroundColor:'rgba(252,185,0,.1)',fill:true,tension:.4,pointRadius:5,pointBackgroundColor:'#FCB900',pointBorderColor:'#fff',pointBorderWidth:2}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#9CA3AF',font:{size:11}}},y:{min:0,max:100,grid:{color:'#F3F4F6'},ticks:{color:'#9CA3AF',stepSize:25}}},animation:{duration:300}},
+  });
+}
+
+async function loadInsight(){
+  const date=new Date().toLocaleDateString('sv-SE');
+  const insight=await fetch('/api/insight/'+date).then(function(r){return r.json();});
+  const el=document.getElementById('insightContent');
+  if(insight.error){el.innerHTML='<div class="empty" style="padding:48px">まだ今日のレポートがありません。「今すぐ日報生成」で作成できます。</div>';return;}
+  const sc=insight.efficiency_score;
+  const scoreColor=sc>=70?'#059669':sc>=50?'#D97706':'#DC2626';
+  var sugs=(insight.suggestions||[]).map(function(s){
+    var icons={automation:'&#x26A1;',batch:'&#x1F4E6;',ai_assist:'&#x1F91D;',eliminate:'&#x1F5D1;'};
+    var icon=icons[s.automation_type]||'&#x1F4A1;';
+    var bg={automation:'#DBEAFE',batch:'#EDE9FE',ai_assist:'#D1FAE5',eliminate:'#FEE2E2'}[s.automation_type]||'#F3F4F6';
+    return '<div class="suggestion"><div class="sug-icon" style="background:'+bg+'">'+icon+'</div><div class="sug-body"><div class="sug-title">'+s.task_description+'</div><div class="sug-agent">'+s.agent_name+' &nbsp;<span class="type-badge tb-'+s.automation_type+'">'+s.automation_type+'</span></div></div><div class="sug-right"><div class="sug-save">-'+s.estimated_savings_minutes+'分/日</div><div class="sug-cost">'+s.time_spent_minutes+'分消費中</div></div></div>';
+  }).join('');
+  var acts=(insight.action_items||[]).map(function(a,i){
+    return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #F3F4F6"><div style="width:22px;height:22px;background:#FCB90020;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#B45309;flex-shrink:0">'+(i+1)+'</div><div style="font-size:13px">'+a+'</div></div>';
+  }).join('');
+  el.innerHTML=
+    '<div class="section" style="margin-bottom:16px"><div class="score-wrap">'+
+    '<div class="score-ring"><canvas id="scoreRing" width="88" height="88"></canvas><div class="score-num" style="color:'+scoreColor+'">'+sc+'</div></div>'+
+    '<div class="score-detail"><div class="score-summary">'+insight.summary+'</div><div class="score-sub">効率スコア '+sc+'/100 &nbsp;&middot;&nbsp; '+insight.date+'</div></div>'+
+    '</div></div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'+
+    '<div class="section"><div class="section-title">&#x1F916; AI自動化提案</div>'+(sugs||'<div class="empty">提案なし</div>')+'</div>'+
+    '<div class="section"><div class="section-title">&#x2705; 明日のアクション</div>'+(acts||'<div class="empty">なし</div>')+'</div>'+
+    '</div>';
+  new Chart(document.getElementById('scoreRing'),{
+    type:'doughnut',
+    data:{datasets:[{data:[sc,100-sc],backgroundColor:[scoreColor,'#F3F4F6'],borderWidth:0}]},
+    options:{cutout:'78%',plugins:{legend:{display:false}},animation:{duration:300}},
+  });
+}
+
+async function loadPrivacy(){
+  const r=await fetch('/api/privacy-rules').then(function(r){return r.json();});
+  document.getElementById('blockedApps').innerHTML=r.blockedApps.map(function(a){return '<li>'+a+'</li>';}).join('');
+  document.getElementById('blockedUrls').innerHTML=r.blockedUrlPatterns.map(function(a){return '<li>'+a+'</li>';}).join('');
+  document.getElementById('sanitizedPats').innerHTML=r.sanitizedPatterns.map(function(a){return '<li>'+a+'</li>';}).join('');
+}
+
+async function generateReport(){
+  var btn=document.getElementById('reportBtn');
+  var st=document.getElementById('reportStatus');
+  btn.disabled=true;btn.textContent='生成中...';st.textContent='';
+  try{
+    const r=await fetch('/api/report',{method:'POST'}).then(function(r){return r.json();});
+    if(r.ok){loadInsight();st.textContent='&#x2713; Slackに送信しました';setTimeout(function(){st.textContent='';},4000);}
+    else st.textContent='エラー: '+(r.error||'不明');
+  }finally{btn.disabled=false;btn.textContent='&#x25B6; 今すぐ日報生成 & Slack送信';}
+}
+
+async function startDaemon(){await fetch('/api/daemon/start',{method:'POST'});setTimeout(checkStatus,1500);}
+async function stopDaemon(){if(!confirm('監視を停止しますか？'))return;await fetch('/api/daemon/stop',{method:'POST'});setTimeout(checkStatus,1500);}
+async function resetToday(){
+  if(!confirm('今日の記録をすべて削除しますか？'))return;
+  const date=new Date().toLocaleDateString('sv-SE');
+  await fetch('/api/reset/'+date,{method:'DELETE'});
+  loadToday();
+}
+
+loadToday();checkStatus();
+setInterval(function(){if(document.getElementById('page-today').classList.contains('active'))loadToday();},30000);
+setInterval(checkStatus,10000);
+</script>
+</body>
+</html>
