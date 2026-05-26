@@ -72,7 +72,7 @@ function fetchPendingRows(db: Database.Database, sinceId: number, limit: number)
 function toPayload(row: SyncableRow): CloudActivityPayload {
   return {
     app_name: row.app_name,
-    window_title: row.window_title ?? '',
+    window_title: (row.window_title ?? '').slice(0, 499),
     category: row.category,
     start_time: row.start_time,
     end_time: row.end_time,
@@ -105,7 +105,7 @@ async function runOnce(): Promise<void> {
       setLastSyncedId(db, maxId);
       logToConsole(`☁️  cloud-sync: uploaded ${rows.length} activities (lastId=${maxId})`);
     } else {
-      logToConsole(`☁️  cloud-sync: HTTP ${res.status} — will retry next cycle`);
+      logToConsole(`☁️  cloud-sync: HTTP ${res.status} body=${JSON.stringify(res.data).slice(0,200)} — will retry next cycle`);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
