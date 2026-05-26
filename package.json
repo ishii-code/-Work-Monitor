@@ -1,0 +1,33 @@
+{
+  "name": "pc-work-monitor",
+  "version": "1.0.0",
+  "description": "PC作業監視・時間集計・AI効率化提案エージェント",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "daemon": "tsx scripts/daemon.ts",
+    "dashboard": "tsx scripts/dashboard.ts",
+    "report": "tsx scripts/daily-report.ts",
+    "status": "tsx scripts/status.ts",
+    "stop": "tsx scripts/stop.ts",
+    "start-daemon": "tsx scripts/start-daemon.ts",
+    "uninstall": "tsx scripts/uninstall.ts",
+    "reset-today": "tsx scripts/reset-today.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "active-win": "^8.2.1",
+    "axios": "^1.16.1",
+    "better-sqlite3": "^12.10.0",
+    "express": "^5.2.1",
+    "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}
