@@ -11,8 +11,73 @@ import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const axios = require('axios') as typeof import('axios').default;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function buildMockMonitor(date: string) {
+  const now = new Date();
+  const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
+  return {
+    date,
+    mock: true,
+    employees: [
+      {
+        employee_id: 1,
+        name: '石井 豪（モック）',
+        email: 'gou@example.com',
+        total_seconds: 5 * 3600 + 32 * 60,
+        idle_seconds: 38 * 60,
+        last_seen: minutesAgo(2),
+        categories: [
+          { category: 'core_dev', total_seconds: 3 * 3600 + 12 * 60 },
+          { category: 'communication', total_seconds: 1 * 3600 + 4 * 60 },
+          { category: 'meeting', total_seconds: 46 * 60 },
+          { category: 'research', total_seconds: 30 * 60 },
+        ],
+        top_apps: [
+          { app_name: 'Cursor', total_seconds: 2 * 3600 + 18 * 60 },
+          { app_name: 'iTerm2', total_seconds: 54 * 60 },
+          { app_name: 'Slack', total_seconds: 1 * 3600 + 4 * 60 },
+          { app_name: 'Google Chrome', total_seconds: 30 * 60 },
+          { app_name: 'zoom.us', total_seconds: 46 * 60 },
+        ],
+      },
+      {
+        employee_id: 2,
+        name: '山田 太郎（モック）',
+        email: 'yamada@example.com',
+        total_seconds: 3 * 3600 + 12 * 60,
+        idle_seconds: 1 * 3600 + 5 * 60,
+        last_seen: minutesAgo(22),
+        categories: [
+          { category: 'communication', total_seconds: 1 * 3600 + 30 * 60 },
+          { category: 'admin', total_seconds: 1 * 3600 },
+          { category: 'research', total_seconds: 42 * 60 },
+        ],
+        top_apps: [
+          { app_name: 'Slack', total_seconds: 1 * 3600 + 30 * 60 },
+          { app_name: 'Mail', total_seconds: 1 * 3600 },
+          { app_name: 'Google Chrome', total_seconds: 42 * 60 },
+        ],
+      },
+      {
+        employee_id: 3,
+        name: '佐藤 花子（モック）',
+        email: 'sato@example.com',
+        total_seconds: 0,
+        idle_seconds: 0,
+        last_seen: null,
+        categories: [],
+        top_apps: [],
+      },
+    ],
+  };
+}
 
 const app = express();
 const PORT = 3011;
@@ -91,6 +156,33 @@ app.post('/api/daemon/start', (_req, res) => {
 app.delete('/api/reset/:date', (req, res) => {
   const count = deleteDayActivities(req.params.date);
   res.json({ ok: true, deleted: count });
+});
+
+app.get('/api/admin/monitor', async (req, res) => {
+  const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
+  const date = ISO_DATE_RE.test(dateParam) ? dateParam : new Date().toLocaleDateString('sv-SE');
+  const cloudUrl = process.env.CLOUD_API_URL;
+  const adminKey = process.env.ADMIN_API_KEY;
+
+  if (!cloudUrl || !adminKey) {
+    res.json(buildMockMonitor(date));
+    return;
+  }
+
+  try {
+    const upstream = await axios.get(
+      `${cloudUrl.replace(/\/$/, '')}/api/admin/monitor?date=${encodeURIComponent(date)}`,
+      {
+        headers: { 'X-API-Key': adminKey },
+        timeout: 15_000,
+        validateStatus: () => true,
+      }
+    );
+    res.status(upstream.status).json(upstream.data);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'upstream error';
+    res.status(502).json({ error: 'cloud API unreachable', detail: msg.slice(0, 200) });
+  }
 });
 
 app.get('/api/privacy-rules', (_req, res) => {

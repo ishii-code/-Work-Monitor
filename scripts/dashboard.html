@@ -116,6 +116,7 @@
   <button class="tab active" onclick="showPage('today',this)">今日</button>
   <button class="tab" onclick="showPage('week',this)">週間</button>
   <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
+  <button class="tab" onclick="showPage('team',this)">&#x1F465; チーム</button>
   <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
   <button class="tab" onclick="showPage('settings',this)">設定</button>
 </nav>
@@ -150,6 +151,16 @@
     <span id="reportStatus" style="font-size:12px;color:var(--muted)"></span>
   </div>
   <div id="insightContent"></div>
+</div>
+<div id="page-team" class="page">
+  <div id="teamWarning" style="display:none;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#991B1B">
+    &#x26A0;&#xFE0F; 管理者権限が必要です。.env に <code>CLOUD_API_URL</code> と <code>ADMIN_API_KEY</code> を設定してください。
+  </div>
+  <div id="teamMockBanner" style="display:none;background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:12px;color:#92400E">
+    &#x1F9EA; モックデータを表示中（CLOUD_API_URL 未設定）
+  </div>
+  <div class="stat-row" id="teamStatRow"></div>
+  <div id="teamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px"></div>
 </div>
 <div id="page-privacy" class="page">
   <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400E">
@@ -208,7 +219,7 @@ function showPage(name,btn){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.getElementById('page-'+name).classList.add('active');
   if(btn)btn.classList.add('active');
-  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy};
+  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam};
   if(loaders[name])loaders[name]();
 }
 
@@ -323,6 +334,81 @@ async function loadInsight(){
   });
 }
 
+function teamStatusDot(lastSeenIso){
+  if(!lastSeenIso)return{cls:'off',color:'#9CA3AF',label:'未接続'};
+  var t=new Date(lastSeenIso).getTime();
+  if(!isFinite(t))return{cls:'off',color:'#9CA3AF',label:'未接続'};
+  var diff=Date.now()-t;
+  if(diff<10*60*1000)return{cls:'on',color:'#059669',label:'稼働中'};
+  if(diff<60*60*1000)return{cls:'off',color:'#D97706',label:'離席'};
+  return{cls:'off',color:'#DC2626',label:'オフライン'};
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+async function loadTeam(){
+  var grid=document.getElementById('teamGrid');
+  var warn=document.getElementById('teamWarning');
+  var mockB=document.getElementById('teamMockBanner');
+  var statRow=document.getElementById('teamStatRow');
+  try{
+    var r=await fetch('/api/admin/monitor');
+    var d=await r.json();
+    if(!r.ok){
+      warn.style.display='block';mockB.style.display='none';
+      grid.innerHTML='';statRow.innerHTML='';
+      warn.innerHTML='&#x26A0;&#xFE0F; '+esc(d.error||('HTTP '+r.status));
+      return;
+    }
+    warn.style.display='none';
+    mockB.style.display=d.mock?'block':'none';
+    var emps=Array.isArray(d.employees)?d.employees:[];
+    var active=0,sumWork=0;
+    for(var i=0;i<emps.length;i++){
+      if(teamStatusDot(emps[i].last_seen).cls==='on')active++;
+      sumWork+=emps[i].total_seconds||0;
+    }
+    statRow.innerHTML=
+      '<div class="stat highlight"><div class="stat-label">稼働中</div><div class="stat-value">'+active+'</div><div class="stat-sub">10分以内のアクティビティ</div></div>'+
+      '<div class="stat"><div class="stat-label">登録社員</div><div class="stat-value">'+emps.length+'</div><div class="stat-sub">対象日 '+esc(d.date)+'</div></div>'+
+      '<div class="stat"><div class="stat-label">合計稼働</div><div class="stat-value">'+fmt(sumWork)+'</div><div class="stat-sub">アイドル除く</div></div>';
+    if(emps.length===0){grid.innerHTML='<div class="empty">登録された社員がいません</div>';return;}
+    grid.innerHTML=emps.map(function(e){
+      var s=teamStatusDot(e.last_seen);
+      var total=e.total_seconds||0;
+      var maxCat=1;for(var k=0;k<(e.categories||[]).length;k++){if(e.categories[k].total_seconds>maxCat)maxCat=e.categories[k].total_seconds;}
+      var maxApp=1;for(var k=0;k<(e.top_apps||[]).length;k++){if(e.top_apps[k].total_seconds>maxApp)maxApp=e.top_apps[k].total_seconds;}
+      var catRows=(e.categories||[]).slice(0,6).map(function(c){
+        var p=Math.round(c.total_seconds/maxCat*100);
+        var col=(CAT[c.category]||{}).color||'#CBD5E1';
+        var lbl=(CAT[c.category]||{}).label||c.category;
+        return '<div class="cat-row"><div class="cat-name">'+lbl+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+p+'%;background:'+col+'"></div></div><div class="cat-time">'+fmt(c.total_seconds)+'</div></div>';
+      }).join('')||'<div class="empty" style="padding:12px">記録なし</div>';
+      var appRows=(e.top_apps||[]).slice(0,5).map(function(a){
+        var p=Math.round(a.total_seconds/maxApp*100);
+        return '<div class="cat-row"><div class="cat-name">'+esc(a.app_name)+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+p+'%;background:#FF6900"></div></div><div class="cat-time">'+fmt(a.total_seconds)+'</div></div>';
+      }).join('')||'<div class="empty" style="padding:12px">-</div>';
+      var lastSeen=e.last_seen?new Date(e.last_seen).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'—';
+      return '<div class="section" style="margin-bottom:0">'+
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px">'+
+          '<div style="min-width:0"><div style="font-size:15px;font-weight:700">'+esc(e.name)+'</div><div style="font-size:11px;color:var(--faint);margin-top:2px">'+esc(e.email)+'</div></div>'+
+          '<div style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:600;background:'+s.color+'15;color:'+s.color+'"><div class="pulse '+s.cls+'" style="color:'+s.color+'"></div>'+s.label+'</div>'+
+        '</div>'+
+        '<div class="stat-row" style="margin-bottom:14px">'+
+          '<div class="stat" style="padding:10px 12px"><div class="stat-label">稼働</div><div class="stat-value" style="font-size:20px">'+fmt(total)+'</div></div>'+
+          '<div class="stat" style="padding:10px 12px"><div class="stat-label">アイドル</div><div class="stat-value" style="font-size:20px;color:var(--muted)">'+fmt(e.idle_seconds||0)+'</div></div>'+
+        '</div>'+
+        '<div class="section-title">カテゴリ別</div>'+catRows+
+        '<div class="section-title" style="margin-top:14px">トップアプリ</div>'+appRows+
+        '<div style="font-size:11px;color:var(--faint);margin-top:12px">最終アクティブ: '+lastSeen+'</div>'+
+        '</div>';
+    }).join('');
+  }catch(err){
+    warn.style.display='block';mockB.style.display='none';
+    warn.innerHTML='&#x26A0;&#xFE0F; 取得エラー: '+esc(err&&err.message?err.message:String(err));
+    grid.innerHTML='';statRow.innerHTML='';
+  }
+}
+
 async function loadPrivacy(){
   const r=await fetch('/api/privacy-rules').then(function(r){return r.json();});
   document.getElementById('blockedApps').innerHTML=r.blockedApps.map(function(a){return '<li>'+a+'</li>';}).join('');
@@ -352,6 +438,7 @@ async function resetToday(){
 
 loadToday();checkStatus();
 setInterval(function(){if(document.getElementById('page-today').classList.contains('active'))loadToday();},30000);
+setInterval(function(){if(document.getElementById('page-team').classList.contains('active'))loadTeam();},300000);
 setInterval(checkStatus,10000);
 </script>
 </body>
