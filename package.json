@@ -12,7 +12,10 @@
     "stop": "tsx scripts/stop.ts",
     "start-daemon": "tsx scripts/start-daemon.ts",
     "uninstall": "tsx scripts/uninstall.ts",
-    "reset-today": "tsx scripts/reset-today.ts"
+    "reset-today": "tsx scripts/reset-today.ts",
+    "server": "tsx lib/server.ts",
+    "build": "tsc",
+    "start": "node dist/lib/server.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
@@ -20,13 +23,15 @@
     "axios": "^1.16.1",
     "better-sqlite3": "^12.10.0",
     "express": "^5.2.1",
-    "node-cron": "^4.2.1"
+    "node-cron": "^4.2.1",
+    "pg": "^8.21.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.1",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
