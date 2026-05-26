@@ -10,6 +10,7 @@ import { analyzeDay } from '../lib/analyzer.js';
 import { formatInsightForSlack } from '../lib/analyzer.js';
 import { sendToSlack, logToConsole } from '../lib/notifier.js';
 import { saveInsight } from '../lib/db.js';
+import { startCloudSync } from '../lib/cloud-sync.js';
 import type { ActivityRecord } from '../lib/types.js';
 
 const POLL_INTERVAL_MS = 10_000; // 10秒ごと
@@ -92,6 +93,8 @@ if (!hasPermission) {
 }
 
 logToConsole('🚀 pc-work-monitor daemon started');
+
+startCloudSync();
 
 setInterval(() => {
   poll().catch(e => console.error('[poll error]', e));
