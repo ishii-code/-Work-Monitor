@@ -1,0 +1,16 @@
+node_modules
+dist
+data
+.git
+.gitignore
+.DS_Store
+.vscode
+.idea
+*.tsbuildinfo
+.env
+*.db
+scripts
+public
+README.md
+install.sh
+start-daemon.sh
