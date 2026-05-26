@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PECO 業務モニター — 全社員ダッシュボード</title>
+<style>
+  :root {
+    --primary: #FCB900;
+    --secondary: #FF6900;
+    --bg: #FFFFFF;
+    --bg-soft: #FFF8E7;
+    --text: #1A1A1A;
+    --text-muted: #6B6B6B;
+    --border: #E5E5E5;
+    --good: #16A34A;
+    --warn: #F59E0B;
+    --danger: #DC2626;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    background: var(--bg-soft);
+    color: var(--text);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    background: var(--bg);
+    border-bottom: 4px solid var(--primary);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: var(--shadow);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+  }
+  .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.02em; }
+  .meta {
+    display: flex; align-items: center; gap: 16px;
+    font-size: 14px; color: var(--text-muted);
+  }
+  .meta strong { color: var(--text); font-weight: 600; }
+  .refresh-btn {
+    background: var(--primary); color: var(--text);
+    border: none; border-radius: 999px;
+    padding: 10px 20px; font-weight: 700; font-size: 14px;
+    cursor: pointer; min-height: 48px; min-width: 48px;
+  }
+  .refresh-btn:hover { background: var(--secondary); color: #fff; }
+
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .summary-card {
+    background: var(--bg); border-radius: 12px; padding: 16px;
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  .summary-card .label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .summary-card .value { font-size: 24px; font-weight: 700; }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--bg); border-radius: 12px; padding: 20px;
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .card-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px;
+  }
+  .name { font-size: 18px; font-weight: 700; margin: 0; }
+  .email { font-size: 12px; color: var(--text-muted); margin: 2px 0 0; }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--text-muted); flex-shrink: 0; margin-top: 8px;
+  }
+  .status-dot.active { background: var(--good); box-shadow: 0 0 0 4px rgba(22,163,74,0.15); }
+  .status-dot.stale  { background: var(--warn); }
+  .status-dot.offline{ background: var(--danger); }
+
+  .total-row {
+    display: flex; gap: 16px; padding: 12px 0;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .stat { flex: 1; }
+  .stat .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat .stat-value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .stat.idle .stat-value { color: var(--text-muted); }
+
+  .section-title {
+    font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin: 4px 0 6px;
+  }
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bar {
+    display: grid; grid-template-columns: 130px 1fr 60px;
+    align-items: center; gap: 8px; font-size: 13px;
+  }
+  .bar .bar-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .bar-track {
+    height: 8px; background: var(--bg-soft); border-radius: 4px; overflow: hidden;
+  }
+  .bar .bar-fill {
+    height: 100%; background: var(--primary); border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  .bar .bar-fill.secondary { background: var(--secondary); }
+  .bar .bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+
+  .last-seen { font-size: 12px; color: var(--text-muted); }
+
+  .empty, .error {
+    text-align: center; padding: 64px 24px;
+    color: var(--text-muted); font-size: 16px;
+  }
+  .error { color: var(--danger); }
+
+  @media (max-width: 640px) {
+    header { padding: 12px 16px; flex-wrap: wrap; }
+    main { padding: 16px; }
+    .grid { grid-template-columns: 1fr; }
+    .bar { grid-template-columns: 100px 1fr 56px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true"></div>
+    <h1>PECO 業務モニター</h1>
+  </div>
+  <div class="meta">
+    <span>最終更新: <strong id="lastUpdated">—</strong></span>
+    <span>対象日: <strong id="targetDate">—</strong></span>
+    <button class="refresh-btn" type="button" id="refreshBtn">更新</button>
+  </div>
+</header>
+
+<main>
+  <section class="summary" id="summary"></section>
+  <section id="content">
+    <div class="empty">読み込み中…</div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const REFRESH_MS = 5 * 60 * 1000;
+  const STALE_THRESHOLD_MS = 10 * 60 * 1000;
+  const OFFLINE_THRESHOLD_MS = 60 * 60 * 1000;
+
+  const CATEGORY_LABELS = {
+    core_dev: '⚙️ コア開発',
+    communication: '💬 コミュニケーション',
+    meeting: '📹 ミーティング',
+    research: '🔍 調査・リサーチ',
+    admin: '🗂 管理・事務',
+    design: '🎨 デザイン',
+    ai_tool: '🤖 AIツール',
+    entertainment: '🎮 エンタメ',
+    idle: '😴 アイドル',
+    other: '❓ その他',
+  };
+
+  function formatDuration(seconds) {
+    const s = Math.max(0, seconds | 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (h > 0) return h + 'h' + String(m).padStart(2, '0') + 'm';
+    return m + 'm';
+  }
+
+  function formatTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function statusFor(lastSeenIso) {
+    if (!lastSeenIso) return 'offline';
+    const last = new Date(lastSeenIso).getTime();
+    if (!Number.isFinite(last)) return 'offline';
+    const diff = Date.now() - last;
+    if (diff < STALE_THRESHOLD_MS) return 'active';
+    if (diff < OFFLINE_THRESHOLD_MS) return 'stale';
+    return 'offline';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function renderEmployeeCard(emp) {
+    const status = statusFor(emp.last_seen);
+    const total = emp.total_seconds || 0;
+    const maxCat = Math.max(1, ...(emp.categories || []).map(c => c.total_seconds));
+    const maxApp = Math.max(1, ...(emp.top_apps || []).map(a => a.total_seconds));
+
+    const categoriesHtml = (emp.categories || []).slice(0, 6).map(c => {
+      const label = CATEGORY_LABELS[c.category] || c.category;
+      const pct = (c.total_seconds / maxCat) * 100;
+      return (
+        '<div class="bar">' +
+          '<span class="bar-label">' + escapeHtml(label) + '</span>' +
+          '<span class="bar-track"><span class="bar-fill" style="width:' + pct.toFixed(1) + '%"></span></span>' +
+          '<span class="bar-value">' + formatDuration(c.total_seconds) + '</span>' +
+        '</div>'
+      );
+    }).join('') || '<div class="last-seen">本日の記録はまだありません</div>';
+
+    const appsHtml = (emp.top_apps || []).slice(0, 5).map(a => {
+      const pct = (a.total_seconds / maxApp) * 100;
+      return (
+        '<div class="bar">' +
+          '<span class="bar-label">' + escapeHtml(a.app_name) + '</span>' +
+          '<span class="bar-track"><span class="bar-fill secondary" style="width:' + pct.toFixed(1) + '%"></span></span>' +
+          '<span class="bar-value">' + formatDuration(a.total_seconds) + '</span>' +
+        '</div>'
+      );
+    }).join('') || '<div class="last-seen">—</div>';
+
+    return (
+      '<article class="card">' +
+        '<div class="card-head">' +
+          '<div>' +
+            '<h2 class="name">' + escapeHtml(emp.name) + '</h2>' +
+            '<p class="email">' + escapeHtml(emp.email) + '</p>' +
+          '</div>' +
+          '<span class="status-dot ' + status + '" title="' + status + '"></span>' +
+        '</div>' +
+        '<div class="total-row">' +
+          '<div class="stat"><div class="stat-label">稼働</div><div class="stat-value">' + formatDuration(total) + '</div></div>' +
+          '<div class="stat idle"><div class="stat-label">アイドル</div><div class="stat-value">' + formatDuration(emp.idle_seconds || 0) + '</div></div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="section-title">カテゴリ別</div>' +
+          '<div class="bars">' + categoriesHtml + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="section-title">トップアプリ</div>' +
+          '<div class="bars">' + appsHtml + '</div>' +
+        '</div>' +
+        '<div class="last-seen">最終アクティブ: ' + formatTime(emp.last_seen) + '</div>' +
+      '</article>'
+    );
+  }
+
+  function renderSummary(employees) {
+    const total = employees.length;
+    let active = 0, sumWork = 0, sumIdle = 0;
+    for (const e of employees) {
+      const st = statusFor(e.last_seen);
+      if (st === 'active') active += 1;
+      sumWork += e.total_seconds || 0;
+      sumIdle += e.idle_seconds || 0;
+    }
+    const cards = [
+      { label: '登録社員数', value: total + '人' },
+      { label: '稼働中（10分以内）', value: active + '人' },
+      { label: '今日の総稼働時間', value: formatDuration(sumWork) },
+      { label: '今日の総アイドル', value: formatDuration(sumIdle) },
+    ];
+    document.getElementById('summary').innerHTML = cards.map(c =>
+      '<div class="summary-card"><div class="label">' + escapeHtml(c.label) + '</div>' +
+      '<div class="value">' + escapeHtml(c.value) + '</div></div>'
+    ).join('');
+  }
+
+  async function refresh() {
+    const content = document.getElementById('content');
+    try {
+      const res = await fetch('/api/monitor', { headers: { 'Accept': 'application/json' } });
+      const data = await res.json();
+      if (!res.ok) {
+        content.innerHTML = '<div class="error">取得失敗: ' + escapeHtml(data.error || ('HTTP ' + res.status)) + '</div>';
+        return;
+      }
+      const employees = Array.isArray(data.employees) ? data.employees : [];
+      document.getElementById('targetDate').textContent = data.date || '—';
+      document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      renderSummary(employees);
+      if (employees.length === 0) {
+        content.innerHTML = '<div class="empty">登録された社員がいません。</div>';
+        return;
+      }
+      content.innerHTML = '<div class="grid">' + employees.map(renderEmployeeCard).join('') + '</div>';
+    } catch (e) {
+      content.innerHTML = '<div class="error">通信エラー: ' + escapeHtml(e && e.message ? e.message : String(e)) + '</div>';
+    }
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', refresh);
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

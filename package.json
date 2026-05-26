@@ -14,6 +14,7 @@
     "uninstall": "tsx scripts/uninstall.ts",
     "reset-today": "tsx scripts/reset-today.ts",
     "server": "tsx lib/server.ts",
+    "monitor": "tsx scripts/dashboard-server.ts",
     "build": "tsc",
     "start": "node dist/lib/server.js"
   },

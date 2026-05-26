@@ -133,11 +133,12 @@ export interface EmployeeDailyStat {
   idle_seconds: number;
   last_seen: string | null;
   categories: Array<{ category: string; total_seconds: number }>;
+  top_apps: Array<{ app_name: string; total_seconds: number }>;
 }
 
 export async function getMonitorOverview(date: string): Promise<EmployeeDailyStat[]> {
   const p = getPool();
-  const rows = await p.query<{
+  const categoryRows = await p.query<{
     employee_id: number;
     name: string;
     email: string;
@@ -157,8 +158,22 @@ export async function getMonitorOverview(date: string): Promise<EmployeeDailySta
     [date]
   );
 
+  const appRows = await p.query<{
+    employee_id: number;
+    app_name: string;
+    total_seconds: string;
+  }>(
+    `SELECT employee_id, app_name,
+            COALESCE(SUM(duration_seconds), 0)::text AS total_seconds
+     FROM cloud_activities
+     WHERE date = $1 AND category <> 'idle'
+     GROUP BY employee_id, app_name
+     ORDER BY employee_id, SUM(duration_seconds) DESC`,
+    [date]
+  );
+
   const map = new Map<number, EmployeeDailyStat>();
-  for (const row of rows.rows) {
+  for (const row of categoryRows.rows) {
     const seconds = Number(row.total_seconds) || 0;
     let entry = map.get(row.employee_id);
     if (!entry) {
@@ -170,6 +185,7 @@ export async function getMonitorOverview(date: string): Promise<EmployeeDailySta
         idle_seconds: 0,
         last_seen: null,
         categories: [],
+        top_apps: [],
       };
       map.set(row.employee_id, entry);
     }
@@ -182,6 +198,16 @@ export async function getMonitorOverview(date: string): Promise<EmployeeDailySta
     if (row.last_seen && (!entry.last_seen || row.last_seen > entry.last_seen)) {
       entry.last_seen = row.last_seen;
     }
+  }
+
+  for (const row of appRows.rows) {
+    const entry = map.get(row.employee_id);
+    if (!entry) continue;
+    if (entry.top_apps.length >= 5) continue;
+    entry.top_apps.push({
+      app_name: row.app_name,
+      total_seconds: Number(row.total_seconds) || 0,
+    });
   }
 
   for (const entry of map.values()) {
