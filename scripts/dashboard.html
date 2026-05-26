@@ -16,9 +16,13 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
-  header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-  .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px}
-  .logo-mark{width:28px;height:28px;background:var(--yellow);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px}
+  header{background:#1A1A1A;border-bottom:2px solid var(--yellow);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .logo{display:flex;align-items:center;gap:14px}
+  .logo-wordmark{display:flex;flex-direction:column;line-height:1;gap:2px}
+  .logo-peco{font-size:18px;font-weight:800;letter-spacing:-.5px;color:var(--yellow)}
+  .logo-sub{font-size:9px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:rgba(255,255,255,.45)}
+  .logo-divider{width:1px;height:28px;background:rgba(255,255,255,.15)}
+  .logo-tool{font-size:13px;font-weight:600;color:rgba(255,255,255,.8);letter-spacing:.2px}
   .daemon-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid var(--border)}
   .daemon-pill.on{background:#ECFDF5;color:var(--green);border-color:#A7F3D0}
   .daemon-pill.off{background:#FEF2F2;color:var(--red);border-color:#FECACA}
@@ -102,8 +106,12 @@
 <body>
 <header>
   <div class="logo">
-    <div class="logo-mark">&#x1F4CA;</div>
-    Work Monitor
+    <div class="logo-wordmark">
+      <span class="logo-peco">PECO</span>
+      <span class="logo-sub">Smart Pet Medical</span>
+    </div>
+    <div class="logo-divider"></div>
+    <span class="logo-tool">Work Monitor</span>
   </div>
   <div id="daemonPill" class="daemon-pill off">
     <div class="pulse off"></div>確認中
