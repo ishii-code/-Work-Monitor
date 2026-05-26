@@ -94,6 +94,35 @@
   .settings-desc{font-size:12px;color:var(--muted);margin-top:2px}
   code{background:var(--bg);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-size:12px;font-family:ui-monospace,monospace}
   .empty{padding:40px;text-align:center;color:var(--faint);font-size:13px}
+  .refresh-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:.15s}
+  .refresh-btn:hover{background:var(--bg);color:var(--text);border-color:var(--border-strong)}
+  .refresh-btn:disabled{opacity:.5;cursor:default}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.55);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 16px;overflow-y:auto}
+  .modal-backdrop.show{display:flex}
+  .modal{background:var(--surface);border-radius:12px;width:100%;max-width:780px;box-shadow:0 20px 50px rgba(0,0,0,.25);overflow:hidden}
+  .modal-head{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .modal-title{font-size:16px;font-weight:700}
+  .modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:2px 8px;line-height:1}
+  .modal-close:hover{color:var(--text)}
+  .modal-body{padding:20px 22px;max-height:calc(100vh - 180px);overflow-y:auto}
+  .spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--yellow);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .ai-result{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;font-size:13px;line-height:1.7;white-space:pre-wrap;color:var(--text)}
+  .clickable{cursor:pointer;transition:.15s}
+  .clickable:hover{border-color:var(--yellow);box-shadow:0 4px 12px rgba(252,185,0,.18)}
+  .step{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #F3F4F6}
+  .step:last-child{border-bottom:none}
+  .step-num{width:28px;height:28px;border-radius:50%;background:var(--yellow);color:#000;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
+  .step-body{flex:1;min-width:0}
+  .step-title{font-size:13px;font-weight:700;margin-bottom:6px}
+  .step-desc{font-size:12px;color:var(--muted);margin-bottom:8px}
+  .code-block{background:#0F172A;color:#E2E8F0;border-radius:6px;padding:10px 12px;font-family:ui-monospace,monospace;font-size:12px;overflow-x:auto;white-space:pre;position:relative}
+  .copy-btn{background:#1E293B;border:1px solid #334155;color:#E2E8F0;border-radius:4px;padding:3px 9px;font-size:11px;font-weight:600;cursor:pointer;position:absolute;top:6px;right:6px}
+  .copy-btn:hover{background:#334155}
+  .copy-btn.copied{background:#059669;border-color:#10B981}
+  .setting-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600}
+  .setting-pill.on{background:#ECFDF5;color:var(--green);border:1px solid #A7F3D0}
+  .setting-pill.off{background:#FEF2F2;color:var(--red);border:1px solid #FECACA}
   @media(max-width:700px){
     nav{overflow-x:auto}.stat-row{grid-template-columns:1fr 1fr}
     #mainGrid{grid-template-columns:1fr !important}
@@ -108,8 +137,11 @@
     <div class="logo-divider"></div>
     <span class="logo-tool">Work Monitor</span>
   </div>
-  <div id="daemonPill" class="daemon-pill off">
-    <div class="pulse off"></div>確認中
+  <div style="display:flex;align-items:center;gap:10px">
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshActive()" title="現在のタブを再読込">&#x21BB; 更新</button>
+    <div id="daemonPill" class="daemon-pill off">
+      <div class="pulse off"></div>確認中
+    </div>
   </div>
 </header>
 <nav>
@@ -118,7 +150,7 @@
   <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
   <button class="tab" onclick="showPage('team',this)">&#x1F465; チーム</button>
   <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
-  <button class="tab" onclick="showPage('settings',this)">設定</button>
+  <button class="tab" onclick="showPage('settings',this)">&#x2699;&#xFE0F; 設定</button>
 </nav>
 <main>
 <div id="page-today" class="page active">
@@ -174,6 +206,63 @@
 </div>
 <div id="page-settings" class="page">
   <div class="section" style="margin-bottom:16px">
+    <div class="section-title">設定状況</div>
+    <div id="settingsStatus" class="empty">読み込み中…</div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+      <button class="btn btn-primary" id="testBtn" onclick="testConnection()">&#x1F50C; 接続テスト</button>
+      <span id="testResult" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+  </div>
+  <div id="onboardSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x1F465; 社員オンボーディング</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">APIキーを生成</div>
+        <div class="step-desc">社員ごとにユニークな 32 文字のキーを発行します</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="generateKey()">&#x1F511; 生成</button>
+          <code id="generatedKey" style="font-size:12px">未生成</code>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">社員を DB に登録</div>
+        <div class="step-desc">PostgreSQL に以下の SQL を実行（社員名・メールは適宜変更）</div>
+        <div class="code-block"><button class="copy-btn" onclick="copyText('sqlBlock',this)">コピー</button><span id="sqlBlock">INSERT INTO employees (api_key, name, email)
+VALUES ('発行したAPIキー', '社員名', 'email@peco-japan.com');</span></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">社員に送るインストールコマンド</div>
+        <div class="step-desc">社員が macOS ターミナルで 1 行実行するだけで導入完了</div>
+        <div class="code-block"><button class="copy-btn" onclick="copyText('installBlock',this)">コピー</button><span id="installBlock">curl -fsSL https://raw.githubusercontent.com/ishii-code/-Work-Monitor/main/install.sh | bash</span></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">社員が入力する値</div>
+        <div class="step-desc">インストーラの対話プロンプトで以下を入力させる</div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12px;align-items:center">
+          <span style="color:var(--muted)">CLOUD_API_URL:</span><code id="onboardCloudUrl">未設定</code>
+          <span style="color:var(--muted)">EMPLOYEE_API_KEY:</span><code>Step 1 で生成したキー</code>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <div class="step-title">アクセシビリティ許可</div>
+        <div class="step-desc">システム設定 → プライバシーとセキュリティ → アクセシビリティ → <code>node</code> を追加してオン</div>
+      </div>
+    </div>
+  </div>
+  <div class="section" style="margin-bottom:16px">
     <div class="section-title">デーモン制御</div>
     <div class="settings-row">
       <div><div class="settings-label">監視デーモン</div><div class="settings-desc">10秒ごとにアクティブウィンドウを記録</div></div>
@@ -196,6 +285,15 @@
   </div>
 </div>
 </main>
+<div class="modal-backdrop" id="empModal" onclick="if(event.target===this)closeEmpModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="empModalTitle">社員詳細</div>
+      <button class="modal-close" onclick="closeEmpModal()" aria-label="閉じる">&times;</button>
+    </div>
+    <div class="modal-body" id="empModalBody"></div>
+  </div>
+</div>
 <script>
 const CAT={
   core_dev:{label:'&#x2699;&#xFE0F; コア開発',color:'#FCB900'},
@@ -219,7 +317,7 @@ function showPage(name,btn){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.getElementById('page-'+name).classList.add('active');
   if(btn)btn.classList.add('active');
-  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam};
+  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam,settings:loadSettings};
   if(loaders[name])loaders[name]();
 }
 
@@ -361,6 +459,7 @@ async function loadTeam(){
     }
     warn.style.display='none';
     mockB.style.display=d.mock?'block':'none';
+    lastTeamData=d;
     var emps=Array.isArray(d.employees)?d.employees:[];
     var active=0,sumWork=0;
     for(var i=0;i<emps.length;i++){
@@ -388,7 +487,7 @@ async function loadTeam(){
         return '<div class="cat-row"><div class="cat-name">'+esc(a.app_name)+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+p+'%;background:#FF6900"></div></div><div class="cat-time">'+fmt(a.total_seconds)+'</div></div>';
       }).join('')||'<div class="empty" style="padding:12px">-</div>';
       var lastSeen=e.last_seen?new Date(e.last_seen).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'—';
-      return '<div class="section" style="margin-bottom:0">'+
+      return '<div class="section clickable" style="margin-bottom:0" data-emp="'+e.employee_id+'" onclick="openEmpModal('+e.employee_id+')">'+
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px">'+
           '<div style="min-width:0"><div style="font-size:15px;font-weight:700">'+esc(e.name)+'</div><div style="font-size:11px;color:var(--faint);margin-top:2px">'+esc(e.email)+'</div></div>'+
           '<div style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:600;background:'+s.color+'15;color:'+s.color+'"><div class="pulse '+s.cls+'" style="color:'+s.color+'"></div>'+s.label+'</div>'+
@@ -425,6 +524,140 @@ async function generateReport(){
     if(r.ok){loadInsight();st.textContent='&#x2713; Slackに送信しました';setTimeout(function(){st.textContent='';},4000);}
     else st.textContent='エラー: '+(r.error||'不明');
   }finally{btn.disabled=false;btn.textContent='&#x25B6; 今すぐ日報生成 & Slack送信';}
+}
+
+var lastTeamData=null;
+
+function openEmpModal(id){
+  if(!lastTeamData||!Array.isArray(lastTeamData.employees))return;
+  var e=lastTeamData.employees.find(function(x){return x.employee_id===id;});
+  if(!e)return;
+  var s=teamStatusDot(e.last_seen);
+  var total=e.total_seconds||0;
+  var maxCat=1;for(var k=0;k<(e.categories||[]).length;k++){if(e.categories[k].total_seconds>maxCat)maxCat=e.categories[k].total_seconds;}
+  var maxApp=1;for(var k=0;k<(e.top_apps||[]).length;k++){if(e.top_apps[k].total_seconds>maxApp)maxApp=e.top_apps[k].total_seconds;}
+  var catRows=(e.categories||[]).map(function(c){
+    var p=Math.round(c.total_seconds/maxCat*100);
+    var col=(CAT[c.category]||{}).color||'#CBD5E1';
+    var lbl=(CAT[c.category]||{}).label||c.category;
+    return '<div class="cat-row"><div class="cat-name">'+lbl+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+p+'%;background:'+col+'"></div></div><div class="cat-time">'+fmt(c.total_seconds)+'</div></div>';
+  }).join('')||'<div class="empty" style="padding:12px">記録なし</div>';
+  var appRows=(e.top_apps||[]).map(function(a){
+    var p=Math.round(a.total_seconds/maxApp*100);
+    return '<div class="cat-row"><div class="cat-name">'+esc(a.app_name)+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+p+'%;background:#FF6900"></div></div><div class="cat-time">'+fmt(a.total_seconds)+'</div></div>';
+  }).join('')||'<div class="empty" style="padding:12px">-</div>';
+  document.getElementById('empModalTitle').innerHTML=esc(e.name)+' <span style="font-size:12px;color:var(--faint);font-weight:400;margin-left:8px">'+esc(e.email)+'</span>';
+  document.getElementById('empModalBody').innerHTML=
+    '<div class="stat-row">'+
+      '<div class="stat highlight"><div class="stat-label">稼働</div><div class="stat-value">'+fmt(total)+'</div><div class="stat-sub">'+s.label+'</div></div>'+
+      '<div class="stat"><div class="stat-label">アイドル</div><div class="stat-value">'+fmt(e.idle_seconds||0)+'</div></div>'+
+      '<div class="stat"><div class="stat-label">アプリ数</div><div class="stat-value">'+((e.top_apps||[]).length)+'</div></div>'+
+    '</div>'+
+    '<div class="section" style="box-shadow:none;margin-bottom:12px"><div class="section-title">カテゴリ別時間</div>'+catRows+'</div>'+
+    '<div class="section" style="box-shadow:none;margin-bottom:12px"><div class="section-title">使用アプリ一覧</div>'+appRows+'</div>'+
+    '<div class="action-bar" style="margin-bottom:10px">'+
+      '<button class="btn btn-primary" id="aiSugBtn" onclick="generateAiSuggestion('+e.employee_id+')">&#x1F916; AI化提案を生成</button>'+
+      '<span id="aiSugStatus" style="font-size:12px;color:var(--muted)"></span>'+
+    '</div>'+
+    '<div id="aiSugResult"></div>';
+  document.getElementById('empModal').classList.add('show');
+}
+function closeEmpModal(){document.getElementById('empModal').classList.remove('show');}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeEmpModal();});
+
+async function generateAiSuggestion(id){
+  var btn=document.getElementById('aiSugBtn');
+  var st=document.getElementById('aiSugStatus');
+  var out=document.getElementById('aiSugResult');
+  btn.disabled=true;st.innerHTML='<span class="spinner"></span> 分析中…';out.innerHTML='';
+  try{
+    var r=await fetch('/api/admin/ai-suggestion/'+id);
+    var d=await r.json();
+    if(!r.ok){out.innerHTML='<div class="ai-result" style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</div>';st.textContent='';return;}
+    out.innerHTML='<div class="ai-result">'+esc(d.suggestion||'(空)')+'</div>';
+    st.textContent='✓ 生成完了';
+  }catch(err){
+    out.innerHTML='<div class="ai-result" style="color:var(--red)">通信エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
+    st.textContent='';
+  }finally{btn.disabled=false;}
+}
+
+async function loadSettings(){
+  try{
+    var r=await fetch('/api/settings');
+    var s=await r.json();
+    function pill(ok,suffix){return ok?'<span class="setting-pill on">&#x2705; 設定済み'+(suffix?' '+esc(suffix):'')+'</span>':'<span class="setting-pill off">&#x26A0;&#xFE0F; 未設定</span>';}
+    var rows=[
+      {k:'CLOUD_API_URL',v:s.cloud_api_url?'<code>'+esc(s.cloud_api_url)+'</code>':pill(false),desc:'クラウド API のベース URL'},
+      {k:'EMPLOYEE_API_KEY',v:pill(s.employee_api_key_set,s.employee_api_key_suffix||''),desc:'この社員PC用の認証キー'},
+      {k:'ADMIN_API_KEY',v:pill(s.admin_api_key_set,s.admin_api_key_suffix||''),desc:'管理者ビュー・オンボーディング用'},
+      {k:'SLACK_WEBHOOK_URL',v:pill(s.slack_webhook_set),desc:'日報送信先'},
+      {k:'ANTHROPIC_API_KEY',v:pill(s.anthropic_api_key_set),desc:'AI 提案生成に使用'},
+      {k:'DATABASE_URL',v:pill(s.database_url_set),desc:'クラウドAPI server 側のみ必要'},
+    ];
+    document.getElementById('settingsStatus').innerHTML=
+      '<div style="display:flex;flex-direction:column;gap:0">'+rows.map(function(r){
+        return '<div class="settings-row"><div><div class="settings-label">'+esc(r.k)+'</div><div class="settings-desc">'+esc(r.desc)+'</div></div><div>'+r.v+'</div></div>';
+      }).join('')+'</div>';
+    var ob=document.getElementById('onboardSection');
+    if(s.admin_api_key_set){
+      ob.style.display='block';
+      document.getElementById('onboardCloudUrl').textContent=s.cloud_api_url||'(未設定)';
+    }else{
+      ob.style.display='none';
+    }
+  }catch(err){
+    document.getElementById('settingsStatus').innerHTML='<div class="empty" style="color:var(--red)">取得エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
+  }
+}
+
+async function testConnection(){
+  var btn=document.getElementById('testBtn');
+  var out=document.getElementById('testResult');
+  btn.disabled=true;out.innerHTML='<span class="spinner"></span> 確認中…';
+  try{
+    var r=await fetch('/api/settings/test',{method:'POST'});
+    var d=await r.json();
+    if(d.ok){out.innerHTML='<span style="color:var(--green);font-weight:600">&#x2705; 成功 ('+d.status+', '+d.latency_ms+'ms)</span>';}
+    else{out.innerHTML='<span style="color:var(--red);font-weight:600">&#x26A0;&#xFE0F; '+esc(d.error||('HTTP '+(d.status||'?')))+'</span>';}
+  }catch(err){
+    out.innerHTML='<span style="color:var(--red)">エラー: '+esc(err&&err.message?err.message:String(err))+'</span>';
+  }finally{btn.disabled=false;}
+}
+
+async function generateKey(){
+  try{
+    var r=await fetch('/api/settings/generate-key',{method:'POST'});
+    var d=await r.json();
+    var el=document.getElementById('generatedKey');
+    el.textContent=d.api_key;
+    el.style.cursor='pointer';
+    el.title='クリックでコピー';
+    el.onclick=function(){navigator.clipboard.writeText(d.api_key);el.style.background='#D1FAE5';setTimeout(function(){el.style.background='';},900);};
+  }catch(err){alert('生成失敗: '+(err&&err.message?err.message:String(err)));}
+}
+
+function copyText(id,btn){
+  var t=document.getElementById(id).textContent;
+  navigator.clipboard.writeText(t).then(function(){
+    var orig=btn.textContent;
+    btn.textContent='✓ コピー済み';
+    btn.classList.add('copied');
+    setTimeout(function(){btn.textContent=orig;btn.classList.remove('copied');},1500);
+  });
+}
+
+function refreshActive(){
+  var page=document.querySelector('.page.active');
+  if(!page)return;
+  var name=page.id.replace('page-','');
+  var map={today:loadToday,week:loadWeek,insight:loadInsight,team:loadTeam,privacy:loadPrivacy,settings:loadSettings};
+  if(map[name]){
+    var btn=document.getElementById('refreshBtn');
+    btn.disabled=true;
+    Promise.resolve(map[name]()).finally(function(){setTimeout(function(){btn.disabled=false;},400);});
+  }
+  checkStatus();
 }
 
 async function startDaemon(){await fetch('/api/daemon/start',{method:'POST'});setTimeout(checkStatus,1500);}

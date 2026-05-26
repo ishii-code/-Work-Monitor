@@ -12,9 +12,16 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createRequire } from 'module';
+import { randomBytes } from 'crypto';
+import Anthropic from '@anthropic-ai/sdk';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
+
+function maskTail(value: string | undefined): string | null {
+  if (!value) return null;
+  return value.length <= 4 ? '*'.repeat(value.length) : '…' + value.slice(-4);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -182,6 +189,131 @@ app.get('/api/admin/monitor', async (req, res) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'upstream error';
     res.status(502).json({ error: 'cloud API unreachable', detail: msg.slice(0, 200) });
+  }
+});
+
+app.get('/api/settings', (_req, res) => {
+  res.json({
+    cloud_api_url: process.env.CLOUD_API_URL ?? null,
+    employee_api_key_set: !!process.env.EMPLOYEE_API_KEY,
+    employee_api_key_suffix: maskTail(process.env.EMPLOYEE_API_KEY),
+    admin_api_key_set: !!process.env.ADMIN_API_KEY,
+    admin_api_key_suffix: maskTail(process.env.ADMIN_API_KEY),
+    slack_webhook_set: !!process.env.SLACK_WEBHOOK_URL,
+    anthropic_api_key_set: !!process.env.ANTHROPIC_API_KEY,
+    database_url_set: !!process.env.DATABASE_URL,
+  });
+});
+
+app.post('/api/settings/test', async (_req, res) => {
+  const cloudUrl = process.env.CLOUD_API_URL;
+  if (!cloudUrl) {
+    res.status(400).json({ ok: false, error: 'CLOUD_API_URL が未設定です' });
+    return;
+  }
+  const endpoint = `${cloudUrl.replace(/\/$/, '')}/api/health`;
+  const start = Date.now();
+  try {
+    const r = await axios.get(endpoint, { timeout: 10_000, validateStatus: () => true });
+    res.json({
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status,
+      latency_ms: Date.now() - start,
+      endpoint,
+      body: r.data,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'network error';
+    res.status(502).json({ ok: false, error: msg.slice(0, 200), endpoint });
+  }
+});
+
+app.post('/api/settings/generate-key', (_req, res) => {
+  const key = randomBytes(24).toString('base64url');
+  res.json({ api_key: key });
+});
+
+app.get('/api/admin/ai-suggestion/:employeeId', async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    res.status(400).json({ error: 'ANTHROPIC_API_KEY が未設定です' });
+    return;
+  }
+  const employeeId = Number(req.params.employeeId);
+  if (!Number.isFinite(employeeId) || employeeId <= 0) {
+    res.status(400).json({ error: 'invalid employeeId' });
+    return;
+  }
+
+  const cloudUrl = process.env.CLOUD_API_URL;
+  const adminKey = process.env.ADMIN_API_KEY;
+  const date = new Date().toLocaleDateString('sv-SE');
+
+  let employees: Array<{ employee_id: number; name: string; categories: Array<{ category: string; total_seconds: number }>; top_apps: Array<{ app_name: string; total_seconds: number }>; total_seconds: number; idle_seconds: number }> = [];
+  if (cloudUrl && adminKey) {
+    try {
+      const r = await axios.get(`${cloudUrl.replace(/\/$/, '')}/api/admin/monitor?date=${encodeURIComponent(date)}`, {
+        headers: { 'X-API-Key': adminKey },
+        timeout: 15_000,
+        validateStatus: () => true,
+      });
+      if (r.status >= 200 && r.status < 300 && r.data && Array.isArray(r.data.employees)) {
+        employees = r.data.employees;
+      }
+    } catch {
+      // fall through to mock below
+    }
+  }
+  if (employees.length === 0) {
+    employees = buildMockMonitor(date).employees;
+  }
+
+  const target = employees.find((e) => e.employee_id === employeeId);
+  if (!target) {
+    res.status(404).json({ error: 'employee not found' });
+    return;
+  }
+
+  const catLines = target.categories.map((c) => `- ${c.category}: ${Math.round(c.total_seconds / 60)}分`).join('\n');
+  const appLines = target.top_apps.map((a) => `- ${a.app_name}: ${Math.round(a.total_seconds / 60)}分`).join('\n');
+  const prompt = `以下は社員「${target.name}」の今日の作業ログです。繰り返し作業・手動作業・時間がかかっている作業を分析し、AI や自動化で効率化できる上位3つを提案してください。
+日本語で、具体的なツール名（Claude / ChatGPT / Zapier / Python等）を含めて提案してください。
+
+【カテゴリ別】
+${catLines || '(記録なし)'}
+
+【使用アプリ】
+${appLines || '(記録なし)'}
+
+【その他】
+合計稼働: ${Math.round(target.total_seconds / 60)}分
+アイドル: ${Math.round(target.idle_seconds / 60)}分
+
+回答フォーマット:
+1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
+2. 【タイトル】...
+3. 【タイトル】...`;
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = msg.content
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .filter((s) => s.length > 0)
+      .join('\n')
+      .trim();
+    res.json({
+      ok: true,
+      employee: { id: target.employee_id, name: target.name },
+      suggestion: text,
+    });
+  } catch (e) {
+    const m = e instanceof Error ? e.message : 'anthropic error';
+    res.status(500).json({ error: m.slice(0, 300) });
   }
 });
 
