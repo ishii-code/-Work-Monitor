@@ -8,11 +8,17 @@ import { saveInsight } from '../lib/db.js';
 import { sendToSlack } from '../lib/notifier.js';
 import { CATEGORY_LABELS, formatDuration } from '../lib/categorizer.js';
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = 3011;
 
 app.use(express.json());
+app.use(express.static(join(__dirname, '../public')));
 
 // ── API ──────────────────────────────────────────────
 
@@ -96,11 +102,6 @@ app.get('/api/privacy-rules', (_req, res) => {
 });
 
 // ── HTML ─────────────────────────────────────────────
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const HTML = readFileSync(join(__dirname, 'dashboard.html'), 'utf-8');
 
 app.get('/', (_req, res) => { res.send(HTML); });
