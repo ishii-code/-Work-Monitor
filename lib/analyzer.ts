@@ -2,9 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { DailySummary, AIInsight } from './types.js';
 import { CATEGORY_LABELS, formatDuration } from './categorizer.js';
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+function getClient(): Anthropic {
+  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+}
 
 function buildSummaryText(summary: DailySummary): string {
   const lines: string[] = [
@@ -63,7 +63,7 @@ const SYSTEM_PROMPT = `あなたはPC作業効率化の専門AIです。1日の�
 export async function analyzeDay(summary: DailySummary): Promise<AIInsight> {
   const summaryText = buildSummaryText(summary);
 
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model: 'claude-opus-4-7',
     max_tokens: 2000,
     system: SYSTEM_PROMPT,
