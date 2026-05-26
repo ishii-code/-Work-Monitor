@@ -565,21 +565,79 @@ function openEmpModal(id){
 function closeEmpModal(){document.getElementById('empModal').classList.remove('show');}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeEmpModal();});
 
+var lastAiActions=[];
+var lastAiEmployeeName='';
+
 async function generateAiSuggestion(id){
   var btn=document.getElementById('aiSugBtn');
   var st=document.getElementById('aiSugStatus');
   var out=document.getElementById('aiSugResult');
   btn.disabled=true;st.innerHTML='<span class="spinner"></span> 分析中…';out.innerHTML='';
+  lastAiActions=[];
   try{
     var r=await fetch('/api/admin/ai-suggestion/'+id);
     var d=await r.json();
     if(!r.ok){out.innerHTML='<div class="ai-result" style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</div>';st.textContent='';return;}
-    out.innerHTML='<div class="ai-result">'+esc(d.suggestion||'(空)')+'</div>';
+    lastAiActions=Array.isArray(d.actions)?d.actions:[];
+    lastAiEmployeeName=(d.employee&&d.employee.name)||'';
+    var html='<div class="ai-result">'+esc(d.suggestion||'(空)')+'</div>';
+    if(lastAiActions.length>0){
+      html+='<div class="section-title" style="margin-top:16px">&#x1F680; spm-dev-agent へ送る</div>';
+      html+=lastAiActions.map(function(a,i){
+        return '<div class="step" style="padding:10px 0">'+
+          '<div class="step-num" style="background:#FF6900;color:#fff">'+(i+1)+'</div>'+
+          '<div class="step-body">'+
+            '<div class="step-title">'+esc(a.title||'')+'</div>'+
+            '<div class="step-desc">'+esc((a.description||'').slice(0,160))+(a.description&&a.description.length>160?'…':'')+'</div>'+
+            '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">'+
+              '<button class="btn btn-primary" id="createPjBtn'+i+'" onclick="createProject('+i+')">&#x1F680; spm-dev-agentで要件定義を作成</button>'+
+              '<span id="createPjStatus'+i+'" style="font-size:12px;color:var(--muted)"></span>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      }).join('');
+      if(!d.spm_dev_agent_configured){
+        html+='<div style="margin-top:10px;font-size:11px;color:var(--faint)">&#x26A0;&#xFE0F; SPM_DEV_AGENT_URL 未設定のため、ボタンを押すとモックレスポンスを返します</div>';
+      }
+    }
+    out.innerHTML=html;
+    if(!d.spm_dev_agent_configured){
+      Array.prototype.forEach.call(out.querySelectorAll('[id^="createPjBtn"]'),function(b){b.style.display='none';});
+    }
     st.textContent='✓ 生成完了';
   }catch(err){
     out.innerHTML='<div class="ai-result" style="color:var(--red)">通信エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
     st.textContent='';
   }finally{btn.disabled=false;}
+}
+
+async function createProject(idx){
+  var action=lastAiActions[idx];
+  if(!action)return;
+  var btn=document.getElementById('createPjBtn'+idx);
+  var st=document.getElementById('createPjStatus'+idx);
+  if(!btn||!st)return;
+  var origLabel=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> 作成中…';st.textContent='';
+  try{
+    var r=await fetch('/api/admin/create-project',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({employeeName:lastAiEmployeeName,action:action}),
+    });
+    var d=await r.json();
+    if(r.ok&&d.ok){
+      var link=d.projectUrl?' <a href="'+esc(d.projectUrl)+'" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline">確認</a>':'';
+      st.innerHTML='<span style="color:var(--green);font-weight:600">&#x2705; 作成完了</span>'+link+(d.mock?' <span style="color:var(--faint)">(mock)</span>':'');
+      btn.innerHTML='&#x2705; 作成済み';
+    }else{
+      st.innerHTML='<span style="color:var(--red);font-weight:600">&#x274C; 作成に失敗: '+esc(d.error||('HTTP '+r.status))+'</span>';
+      btn.disabled=false;btn.innerHTML=origLabel;
+    }
+  }catch(err){
+    st.innerHTML='<span style="color:var(--red)">&#x274C; 通信エラー</span>';
+    btn.disabled=false;btn.innerHTML=origLabel;
+  }
 }
 
 async function loadSettings(){

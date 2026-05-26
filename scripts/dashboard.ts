@@ -289,16 +289,27 @@ ${appLines || '(記録なし)'}
 合計稼働: ${Math.round(target.total_seconds / 60)}分
 アイドル: ${Math.round(target.idle_seconds / 60)}分
 
+まず人間が読める提案を出し、その後に同じ内容を spm-dev-agent 用の JSON で返してください。
+businessCategory は以下から選択: dev_tools / sales / marketing / hr / finance / operations / customer_support / other
+
 回答フォーマット:
 1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
 2. 【タイトル】...
-3. 【タイトル】...`;
+3. 【タイトル】...
+
+\`\`\`json
+{
+  "actions": [
+    {"title": "○○業務の自動化", "description": "詳細な要件説明（5〜10文）", "projectType": "new", "businessCategory": "dev_tools"}
+  ]
+}
+\`\`\``;
 
   try {
     const client = new Anthropic({ apiKey });
     const msg = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content
@@ -306,14 +317,111 @@ ${appLines || '(記録なし)'}
       .filter((s) => s.length > 0)
       .join('\n')
       .trim();
+
+    let actions: Array<{ title: string; description: string; projectType: string; businessCategory: string }> = [];
+    let humanText = text;
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]);
+        if (parsed && Array.isArray(parsed.actions)) {
+          actions = parsed.actions
+            .filter((a: unknown): a is Record<string, unknown> => !!a && typeof a === 'object')
+            .map((a: Record<string, unknown>) => ({
+              title: String(a.title ?? '').slice(0, 200),
+              description: String(a.description ?? '').slice(0, 2000),
+              projectType: String(a.projectType ?? 'new').slice(0, 32),
+              businessCategory: String(a.businessCategory ?? 'other').slice(0, 32),
+            }))
+            .filter((a: { title: string }) => a.title.length > 0);
+        }
+      } catch {
+        // JSON parse failed; keep actions empty
+      }
+      humanText = text.replace(/```json[\s\S]*?```/, '').trim();
+    }
+
     res.json({
       ok: true,
       employee: { id: target.employee_id, name: target.name },
-      suggestion: text,
+      suggestion: humanText,
+      actions,
+      spm_dev_agent_configured: !!process.env.SPM_DEV_AGENT_URL,
     });
   } catch (e) {
     const m = e instanceof Error ? e.message : 'anthropic error';
     res.status(500).json({ error: m.slice(0, 300) });
+  }
+});
+
+app.post('/api/admin/create-project', async (req, res) => {
+  const body = (req.body ?? {}) as { employeeName?: unknown; action?: unknown };
+  const employeeName = typeof body.employeeName === 'string' ? body.employeeName.slice(0, 100) : '';
+  const action = body.action && typeof body.action === 'object' ? (body.action as Record<string, unknown>) : null;
+  if (!employeeName || !action) {
+    res.status(400).json({ error: 'employeeName と action が必須です' });
+    return;
+  }
+  const title = typeof action.title === 'string' ? action.title.slice(0, 200) : '';
+  const description = typeof action.description === 'string' ? action.description.slice(0, 4000) : '';
+  const projectType = typeof action.projectType === 'string' ? action.projectType.slice(0, 32) : 'new';
+  const businessCategory = typeof action.businessCategory === 'string' ? action.businessCategory.slice(0, 32) : 'other';
+  if (!title || !description) {
+    res.status(400).json({ error: 'action.title と action.description が必須です' });
+    return;
+  }
+
+  const agentUrl = process.env.SPM_DEV_AGENT_URL;
+  if (!agentUrl) {
+    const mockId = 'mock-' + Date.now().toString(36);
+    res.json({
+      ok: true,
+      mock: true,
+      projectId: mockId,
+      projectUrl: 'https://example.invalid/projects/' + mockId,
+      message: 'SPM_DEV_AGENT_URL 未設定のためモックレスポンスを返しました',
+    });
+    return;
+  }
+
+  const authToken = process.env.AUTH_SECRET ?? req.header('x-admin-token') ?? '';
+  const endpoint = `${agentUrl.replace(/\/$/, '')}/api/projects`;
+  try {
+    const upstream = await axios.post(
+      endpoint,
+      {
+        name: `[${employeeName}] ${title}`,
+        description,
+        projectType,
+        businessCategory,
+        source: 'pc-work-monitor',
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { 'X-Admin-Token': authToken, Authorization: `Bearer ${authToken}` } : {}),
+        },
+        timeout: 30_000,
+        validateStatus: () => true,
+      }
+    );
+    if (upstream.status >= 200 && upstream.status < 300 && upstream.data) {
+      const data = upstream.data as { id?: string | number; projectId?: string | number; url?: string; projectUrl?: string };
+      const projectId = String(data.projectId ?? data.id ?? '');
+      const projectUrl = String(
+        data.projectUrl ?? data.url ?? `${agentUrl.replace(/\/$/, '')}/projects/${projectId}`
+      );
+      res.json({ ok: true, projectId, projectUrl });
+    } else {
+      res.status(upstream.status || 502).json({
+        error: 'spm-dev-agent への作成リクエストが失敗しました',
+        status: upstream.status,
+        detail: typeof upstream.data === 'string' ? upstream.data.slice(0, 200) : upstream.data,
+      });
+    }
+  } catch (e) {
+    const m = e instanceof Error ? e.message : 'network error';
+    res.status(502).json({ error: 'spm-dev-agent への接続に失敗しました', detail: m.slice(0, 200) });
   }
 });
 
