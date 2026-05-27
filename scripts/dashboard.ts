@@ -65,6 +65,19 @@ const axios = require('axios') as typeof import('axios').default;
 
 const CLOUD_MODE = !!process.env.DATABASE_URL;
 
+function stripPromptArtifacts(text: string): string {
+  if (!text) return '';
+  return text
+    // Markdown 見出し行 (## 人間が読める提案 など) を丸ごと削除
+    .replace(/^\s*#{1,6}\s*[^\n]*\n?/gm, '')
+    // 「人間が読める提案」「人間が読める提案：」等の単独行を削除
+    .replace(/^\s*人間が読める提案[：:]?\s*\n?/gm, '')
+    .replace(/^\s*spm-dev-agent[^\n]*\n?/gim, '')
+    // 3 個以上の連続改行を 2 個に
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function buildMockScoreToday(date: string, employeeId: number) {
   return {
     date,
@@ -510,13 +523,13 @@ ${catLines || '(記録なし)'}
 【使用アプリ】
 ${appLines || '(記録なし)'}
 
-まず人間が読める提案を出し、その後に同じ内容を spm-dev-agent 用の JSON で返してください。
 businessCategory は以下から選択: dev_tools / sales / marketing / hr / finance / operations / customer_support / other
 
-回答フォーマット:
-1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
-2. 【タイトル】...
-3. 【タイトル】...
+回答は以下の 2 ブロックのみ。見出し（# や ## 等）・序文・締めの文章は一切書かないでください。
+
+提案1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
+提案2. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
+提案3. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
 
 \`\`\`json
 {
@@ -553,6 +566,7 @@ businessCategory は以下から選択: dev_tools / sales / marketing / hr / fin
       } catch { /* ignore */ }
       humanText = text.replace(/```json[\s\S]*?```/, '').trim();
     }
+    humanText = stripPromptArtifacts(humanText);
     const logId = await insertAiSuggestionLog(employeeId, type, humanText, actions);
     return { suggestion: humanText, actions, logId };
   }
@@ -849,13 +863,13 @@ ${appLines || '(記録なし)'}
 合計稼働: ${Math.round(target.total_seconds / 60)}分
 アイドル: ${Math.round(target.idle_seconds / 60)}分
 
-まず人間が読める提案を出し、その後に同じ内容を spm-dev-agent 用の JSON で返してください。
 businessCategory は以下から選択: dev_tools / sales / marketing / hr / finance / operations / customer_support / other
 
-回答フォーマット:
-1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
-2. 【タイトル】...
-3. 【タイトル】...
+回答は以下の 2 ブロックのみ。見出し（# や ## 等）・序文・締めの文章は一切書かないでください。
+
+提案1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
+提案2. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
+提案3. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
 
 \`\`\`json
 {
@@ -900,6 +914,7 @@ businessCategory は以下から選択: dev_tools / sales / marketing / hr / fin
       }
       humanText = text.replace(/```json[\s\S]*?```/, '').trim();
     }
+    humanText = stripPromptArtifacts(humanText);
 
     res.json({
       ok: true,
