@@ -22,7 +22,12 @@ import {
   requireAuth,
   type WmUser,
 } from '../lib/auth.js';
-import { initCloudSchema, getMonitorOverview } from '../lib/cloud-db.js';
+import {
+  initCloudSchema,
+  getMonitorOverview,
+  getDailySummaryFromCloud,
+  getWeeklySummaryFromCloud,
+} from '../lib/cloud-db.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
@@ -118,13 +123,7 @@ if (CLOUD_MODE) {
     const user = (req as unknown as { user?: WmUser }).user;
     const employeeId = user?.employee_id ?? null;
     const empty = {
-      summary: {
-        date,
-        total_tracked_seconds: 0,
-        idle_seconds: 0,
-        categories: [],
-        top_apps: [],
-      },
+      summary: { date, total_tracked_seconds: 0, idle_seconds: 0, categories: [], top_apps: [] },
       activities: [],
     };
     if (!employeeId) {
@@ -132,25 +131,34 @@ if (CLOUD_MODE) {
       return;
     }
     try {
-      const rows = await getMonitorOverview(date);
-      const own = rows.find((r) => r.employee_id === employeeId);
-      if (!own) {
-        res.json(empty);
-        return;
-      }
-      res.json({
-        summary: {
-          date,
-          total_tracked_seconds: own.total_seconds,
-          idle_seconds: own.idle_seconds,
-          categories: own.categories,
-          top_apps: own.top_apps,
-        },
-        activities: [],
-      });
+      const summary = await getDailySummaryFromCloud(employeeId, date);
+      res.json({ summary, activities: [] });
     } catch (e) {
       const m = e instanceof Error ? e.message : 'unknown';
       res.status(500).json({ error: 'failed to load today', detail: m.slice(0, 200) });
+    }
+  });
+
+  app.get('/api/week', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    const employeeId = user?.employee_id ?? null;
+    if (!employeeId) {
+      const days: object[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const date = d.toLocaleDateString('sv-SE');
+        days.push({ date, total_tracked_seconds: 0, idle_seconds: 0, categories: [], top_apps: [] });
+      }
+      res.json(days);
+      return;
+    }
+    try {
+      const days = await getWeeklySummaryFromCloud(employeeId);
+      res.json(days);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : 'unknown';
+      res.status(500).json({ error: 'failed to load week', detail: m.slice(0, 200) });
     }
   });
 } else {
@@ -160,18 +168,18 @@ if (CLOUD_MODE) {
     const activities = getTodayActivities(date);
     res.json({ summary, activities: activities.slice(-50).reverse() });
   });
-}
 
-app.get('/api/week', (_req, res) => {
-  const days: object[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const date = d.toLocaleDateString('sv-SE');
-    days.push(getDailySummary(date));
-  }
-  res.json(days);
-});
+  app.get('/api/week', (_req, res) => {
+    const days: object[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const date = d.toLocaleDateString('sv-SE');
+      days.push(getDailySummary(date));
+    }
+    res.json(days);
+  });
+}
 
 app.get('/api/insight/:date', (req, res) => {
   const insight = getLastInsight(req.params.date);

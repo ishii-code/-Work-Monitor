@@ -230,3 +230,92 @@ export async function getMonitorOverview(date: string): Promise<EmployeeDailySta
 
   return Array.from(map.values());
 }
+
+export interface CloudDailySummary {
+  date: string;
+  total_tracked_seconds: number;
+  idle_seconds: number;
+  categories: Array<{
+    category: string;
+    total_seconds: number;
+    apps: Array<{ app_name: string; total_seconds: number; window_titles: string[] }>;
+  }>;
+  top_apps: Array<{ app_name: string; total_seconds: number; window_titles: string[] }>;
+}
+
+export async function getDailySummaryFromCloud(
+  employeeId: number,
+  date: string
+): Promise<CloudDailySummary> {
+  const p = getPool();
+  const rows = await p.query<{
+    category: string;
+    app_name: string;
+    total_seconds: string;
+  }>(
+    `SELECT category, app_name,
+            COALESCE(SUM(duration_seconds), 0)::text AS total_seconds
+     FROM cloud_activities
+     WHERE employee_id = $1 AND date = $2
+     GROUP BY category, app_name
+     ORDER BY SUM(duration_seconds) DESC`,
+    [employeeId, date]
+  );
+
+  let idleSeconds = 0;
+  const catMap = new Map<string, {
+    category: string;
+    total_seconds: number;
+    apps: Array<{ app_name: string; total_seconds: number; window_titles: string[] }>;
+  }>();
+  const appMap = new Map<string, { app_name: string; total_seconds: number; window_titles: string[] }>();
+
+  for (const row of rows.rows) {
+    const secs = Number(row.total_seconds) || 0;
+    if (row.category === 'idle') {
+      idleSeconds += secs;
+      continue;
+    }
+    let cat = catMap.get(row.category);
+    if (!cat) {
+      cat = { category: row.category, total_seconds: 0, apps: [] };
+      catMap.set(row.category, cat);
+    }
+    cat.total_seconds += secs;
+    cat.apps.push({ app_name: row.app_name, total_seconds: secs, window_titles: [] });
+
+    const existing = appMap.get(row.app_name);
+    if (existing) {
+      existing.total_seconds += secs;
+    } else {
+      appMap.set(row.app_name, { app_name: row.app_name, total_seconds: secs, window_titles: [] });
+    }
+  }
+
+  const categories = Array.from(catMap.values()).sort((a, b) => b.total_seconds - a.total_seconds);
+  const total = categories.reduce((sum, c) => sum + c.total_seconds, 0);
+  const top_apps = Array.from(appMap.values())
+    .sort((a, b) => b.total_seconds - a.total_seconds)
+    .slice(0, 10);
+
+  return {
+    date,
+    total_tracked_seconds: total,
+    idle_seconds: idleSeconds,
+    categories,
+    top_apps,
+  };
+}
+
+export async function getWeeklySummaryFromCloud(
+  employeeId: number
+): Promise<CloudDailySummary[]> {
+  const days: CloudDailySummary[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const date = d.toLocaleDateString('sv-SE');
+    days.push(await getDailySummaryFromCloud(employeeId, date));
+  }
+  return days;
+}
