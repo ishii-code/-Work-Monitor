@@ -227,6 +227,10 @@
     <div class="section-title">&#x1F4CB; オンボーディング進捗</div>
     <div id="onboardProgressList"></div>
   </div>
+  <div id="monitoringLogsSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x23F8; モニタリング停止履歴</div>
+    <div id="monitoringLogsBody"></div>
+  </div>
   <div class="stat-row" id="teamStatRow"></div>
   <div id="teamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px"></div>
 </div>
@@ -256,10 +260,10 @@
   <div class="section" style="margin-bottom:16px">
     <div class="section-title">設定状況</div>
     <div id="settingsStatus" class="empty">読み込み中…</div>
-    <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
-      <button class="btn btn-primary" id="testBtn" onclick="testConnection()">&#x1F50C; 接続テスト</button>
-      <span id="testResult" style="font-size:12px;color:var(--muted)"></span>
-    </div>
+  </div>
+  <div id="monitoringControlSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x23F8; モニタリング制御</div>
+    <div id="monitoringControlBody"></div>
   </div>
   <div id="userSetupSection" class="section" style="display:none;margin-bottom:16px">
     <div class="section-title">&#x1F4BB; PCセットアップ手順</div>
@@ -579,6 +583,7 @@ async function loadTeam(){
     mockB.style.display=d.mock?'block':'none';
     lastTeamData=d;
     loadOnboardingProgress();
+    loadMonitoringLogs();
     var emps=Array.isArray(d.employees)?d.employees:[];
     var active=0,sumWork=0;
     for(var i=0;i<emps.length;i++){
@@ -764,6 +769,7 @@ async function loadSettings(){
   document.getElementById('onboardSection').style.display=isAdmin?'block':'none';
   document.getElementById('userSetupSection').style.display=isAdmin?'none':'block';
   if(!isAdmin)loadUserSetup();
+  loadMonitoringControl();
   try{
     var r=await fetch('/api/settings');
     var s=await r.json();
@@ -945,19 +951,77 @@ function rebuildOnboardSql(){
   document.getElementById('sqlBlock').textContent="INSERT INTO employees (api_key, name, email)\nVALUES ('"+key+"', '"+name.replace(/'/g,"''")+"', '"+email.replace(/'/g,"''")+"');";
 }
 
-async function testConnection(){
-  var btn=document.getElementById('testBtn');
-  var out=document.getElementById('testResult');
-  btn.disabled=true;out.innerHTML='<span class="spinner"></span> 確認中…';
+async function loadMonitoringControl(){
+  var sec=document.getElementById('monitoringControlSection');
+  if(!currentUser||!CLOUD_MODE_DETECTED){sec.style.display='none';return;}
   try{
-    var r=await fetch('/api/settings/test',{method:'POST'});
+    var r=await fetch('/api/monitoring/me');
+    if(!r.ok){sec.style.display='none';return;}
     var d=await r.json();
-    if(d.ok){out.innerHTML='<span style="color:var(--green);font-weight:600">&#x2705; 成功 ('+d.status+', '+d.latency_ms+'ms)</span>';}
-    else{out.innerHTML='<span style="color:var(--red);font-weight:600">&#x26A0;&#xFE0F; '+esc(d.error||('HTTP '+(d.status||'?')))+'</span>';}
-  }catch(err){
-    out.innerHTML='<span style="color:var(--red)">エラー: '+esc(err&&err.message?err.message:String(err))+'</span>';
-  }finally{btn.disabled=false;}
+    if(!d.employee_id){sec.style.display='none';return;}
+    sec.style.display='block';
+    var STOP_CMD='launchctl unload ~/Library/LaunchAgents/com.peco.pc-work-monitor.plist';
+    var START_CMD='launchctl load ~/Library/LaunchAgents/com.peco.pc-work-monitor.plist';
+    var stopped=d.status==='stop';
+    var status=stopped
+      ?'<span style="color:var(--red);font-weight:700">&#x1F534; 停止中</span>'
+      :'<span style="color:var(--green);font-weight:700">&#x1F7E2; モニタリング中</span>';
+    var html='<div style="margin-bottom:12px;font-size:14px">現在の状態: '+status+'</div>';
+    if(!stopped){
+      html+='<div style="margin-top:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">停止する理由（任意）</label>'+
+        '<input id="stopReason" type="text" placeholder="休憩 / 会議など" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;font-family:inherit">'+
+        '<button class="btn btn-danger" onclick="submitStop()">&#x23F8; モニタリングを停止する</button></div>';
+    }else{
+      html+='<div style="margin-top:10px"><button class="btn btn-green" onclick="submitStart()">&#x25B6;&#xFE0F; モニタリングを再開する</button></div>'+
+        '<div style="font-size:12px;color:var(--muted);margin-top:14px;margin-bottom:4px">再開コマンド（Mac ターミナルで実行）:</div>'+
+        '<div class="code-block"><button class="copy-btn" onclick="copyText(\'mcStartCmd\',this)">コピー</button><span id="mcStartCmd">'+esc(START_CMD)+'</span></div>';
+    }
+    html+='<div style="font-size:12px;color:var(--muted);margin-top:14px;margin-bottom:4px">停止コマンド（Mac ターミナルで実行）:</div>'+
+      '<div class="code-block"><button class="copy-btn" onclick="copyText(\'mcStopCmd\',this)">コピー</button><span id="mcStopCmd">'+esc(STOP_CMD)+'</span></div>';
+    document.getElementById('monitoringControlBody').innerHTML=html;
+  }catch{sec.style.display='none';}
 }
+var CLOUD_MODE_DETECTED=true;
+async function submitStop(){
+  var reason=(document.getElementById('stopReason')||{}).value||'';
+  var r=await fetch('/api/monitoring/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:reason})});
+  var d=await r.json();
+  if(r.ok&&d.ok){alert('停止しました。launchctl unload で自動起動も停止できます。');loadMonitoringControl();}
+  else{alert('停止失敗: '+(d.error||r.status));}
+}
+async function submitStart(){
+  var r=await fetch('/api/monitoring/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  var d=await r.json();
+  if(r.ok&&d.ok){alert('再開しました。launchctl load でデーモンも再開できます。');loadMonitoringControl();}
+  else{alert('再開失敗: '+(d.error||r.status));}
+}
+async function loadMonitoringLogs(){
+  var sec=document.getElementById('monitoringLogsSection');
+  if(!currentUser||currentUser.role!=='ADMIN'){sec.style.display='none';return;}
+  try{
+    var r=await fetch('/api/admin/monitoring-logs');
+    if(!r.ok){sec.style.display='none';return;}
+    var d=await r.json();
+    sec.style.display='block';
+    var logs=Array.isArray(d.logs)?d.logs:[];
+    if(logs.length===0){document.getElementById('monitoringLogsBody').innerHTML='<div class="empty">停止履歴はありません</div>';return;}
+    // 最新の action が stop な employee を「停止中」として赤字に
+    var latestByEmp={};
+    for(var i=0;i<logs.length;i++){if(!(logs[i].employee_id in latestByEmp))latestByEmp[logs[i].employee_id]=logs[i].action;}
+    var rows=logs.map(function(l){
+      var stopped=latestByEmp[l.employee_id]==='stop';
+      var nameStyle=stopped?'color:var(--red);font-weight:600':'';
+      var actBadge=l.action==='stop'
+        ?'<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">停止</span>'
+        :'<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">再開</span>';
+      var dt=new Date(l.created_at).toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+      return '<tr><td style="'+nameStyle+'">'+esc(l.employee_name)+'</td><td>'+actBadge+'</td><td style="color:var(--muted);font-size:12px">'+esc(l.reason||'-')+'</td><td style="color:var(--muted);font-size:12px;text-align:right">'+dt+'</td></tr>';
+    }).join('');
+    document.getElementById('monitoringLogsBody').innerHTML=
+      '<table class="user-table"><thead><tr><th>社員名</th><th>アクション</th><th>理由</th><th style="text-align:right">日時</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch{sec.style.display='none';}
+}
+// testConnection は廃止
 
 async function generateKey(){
   try{

@@ -65,7 +65,65 @@ export async function initCloudSchema(): Promise<void> {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_wm_users_email ON wm_users(lower(email));
+
+    CREATE TABLE IF NOT EXISTS monitoring_logs (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER REFERENCES employees(id),
+      action TEXT NOT NULL,
+      reason TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitoring_logs_employee_created
+      ON monitoring_logs(employee_id, created_at DESC);
   `);
+}
+
+export type MonitoringAction = 'start' | 'stop';
+
+export async function recordMonitoringLog(employeeId: number, action: MonitoringAction, reason: string | null): Promise<void> {
+  const p = getPool();
+  await p.query(
+    `INSERT INTO monitoring_logs (employee_id, action, reason) VALUES ($1, $2, $3)`,
+    [employeeId, action, reason ? reason.slice(0, 500) : null]
+  );
+}
+
+export async function getLatestMonitoringStatus(employeeId: number): Promise<MonitoringAction | null> {
+  const p = getPool();
+  const r = await p.query<{ action: string }>(
+    `SELECT action FROM monitoring_logs WHERE employee_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [employeeId]
+  );
+  if (r.rows.length === 0) return null;
+  return r.rows[0]!.action === 'stop' ? 'stop' : 'start';
+}
+
+export async function listMonitoringLogs(limit = 200): Promise<Array<{
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  action: string;
+  reason: string | null;
+  created_at: string;
+}>> {
+  const p = getPool();
+  const r = await p.query<{
+    id: number;
+    employee_id: number;
+    employee_name: string;
+    action: string;
+    reason: string | null;
+    created_at: string;
+  }>(
+    `SELECT m.id, m.employee_id, COALESCE(e.name, '(未紐づけ)') AS employee_name,
+            m.action, m.reason, m.created_at
+     FROM monitoring_logs m
+     LEFT JOIN employees e ON e.id = m.employee_id
+     ORDER BY m.created_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return r.rows;
 }
 
 export interface Employee {

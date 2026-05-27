@@ -32,6 +32,9 @@ import {
   listAllEmployees,
   linkUserEmployee,
   findEmployeeByEmail,
+  recordMonitoringLog,
+  getLatestMonitoringStatus,
+  listMonitoringLogs,
 } from '../lib/cloud-db.js';
 import { createActivityRouter } from '../lib/server.js';
 
@@ -175,6 +178,53 @@ if (CLOUD_MODE) {
     } catch (e) {
       const m = e instanceof Error ? e.message : 'unknown';
       res.status(500).json({ error: 'onboarding fetch failed', detail: m.slice(0, 200) });
+    }
+  });
+
+  app.post('/api/monitoring/stop', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user) { res.status(401).json({ error: 'unauthenticated' }); return; }
+    if (!user.employee_id) { res.status(400).json({ error: 'employee_id が紐づいていません' }); return; }
+    const body = (req.body ?? {}) as { reason?: unknown };
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    try {
+      await recordMonitoringLog(user.employee_id, 'stop', reason || null);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
+    }
+  });
+
+  app.post('/api/monitoring/start', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user) { res.status(401).json({ error: 'unauthenticated' }); return; }
+    if (!user.employee_id) { res.status(400).json({ error: 'employee_id が紐づいていません' }); return; }
+    try {
+      await recordMonitoringLog(user.employee_id, 'start', null);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
+    }
+  });
+
+  app.get('/api/monitoring/me', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user) { res.status(401).json({ error: 'unauthenticated' }); return; }
+    if (!user.employee_id) { res.json({ status: null, employee_id: null }); return; }
+    try {
+      const status = await getLatestMonitoringStatus(user.employee_id);
+      res.json({ status: status ?? 'start', employee_id: user.employee_id });
+    } catch (e) {
+      res.status(500).json({ error: 'failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
+    }
+  });
+
+  app.get('/api/admin/monitoring-logs', requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const logs = await listMonitoringLogs();
+      res.json({ logs });
+    } catch (e) {
+      res.status(500).json({ error: 'failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
     }
   });
 
@@ -345,29 +395,6 @@ app.get('/api/settings', (_req, res) => {
     anthropic_api_key_set: !!process.env.ANTHROPIC_API_KEY,
     slack_webhook_set: !!process.env.SLACK_WEBHOOK_URL,
   });
-});
-
-app.post('/api/settings/test', async (_req, res) => {
-  const cloudUrl = process.env.CLOUD_API_URL;
-  if (!cloudUrl) {
-    res.status(400).json({ ok: false, error: 'CLOUD_API_URL が未設定です' });
-    return;
-  }
-  const endpoint = `${cloudUrl.replace(/\/$/, '')}/api/health`;
-  const start = Date.now();
-  try {
-    const r = await axios.get(endpoint, { timeout: 10_000, validateStatus: () => true });
-    res.json({
-      ok: r.status >= 200 && r.status < 300,
-      status: r.status,
-      latency_ms: Date.now() - start,
-      endpoint,
-      body: r.data,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'network error';
-    res.status(502).json({ ok: false, error: msg.slice(0, 200), endpoint });
-  }
 });
 
 app.post('/api/settings/generate-key', (_req, res) => {
