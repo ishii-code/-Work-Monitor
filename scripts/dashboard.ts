@@ -65,6 +65,84 @@ const axios = require('axios') as typeof import('axios').default;
 
 const CLOUD_MODE = !!process.env.DATABASE_URL;
 
+function buildMockScoreToday(date: string, employeeId: number) {
+  return {
+    date,
+    employee_id: employeeId,
+    total_score: 72,
+    mission_fit_score: 75,
+    waste_reduction_score: 68,
+    ai_progress_score: 70,
+    breakdown: {
+      classifications: [
+        { classification: 'A', label: 'AI化可能', minutes: 45, percentage: 30 },
+        { classification: 'B', label: '必須業務', minutes: 90, percentage: 60 },
+        { classification: 'C', label: '削減すべき', minutes: 15, percentage: 10 },
+      ],
+      mission_links: [
+        { title: 'AI医療推進', minutes: 60, score: 8 },
+        { title: 'クリニック展開', minutes: 30, score: 5 },
+      ],
+      calendar_analysis: { internal: 2, external: 1, focus: 1, mission_related: 2 },
+      top_actions: [
+        'メール定型返信をテンプレート化することで週3時間削減可能',
+        '会議議事録作成をAIツールで自動化可能',
+        'データ入力作業をスクリプト化可能',
+      ],
+    },
+    mock: true,
+  };
+}
+
+function buildMockScoreHistory(employeeId: number) {
+  const days = 7;
+  const out: Array<{ date: string; employee_id: number; total_score: number; mission_fit_score: number; waste_reduction_score: number; ai_progress_score: number; mock: boolean }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const date = d.toLocaleDateString('sv-SE');
+    const total = 60 + Math.floor(Math.random() * 26);
+    out.push({
+      date,
+      employee_id: employeeId,
+      total_score: total,
+      mission_fit_score: total + Math.floor(Math.random() * 6) - 3,
+      waste_reduction_score: total + Math.floor(Math.random() * 6) - 3,
+      ai_progress_score: total + Math.floor(Math.random() * 6) - 3,
+      mock: true,
+    });
+  }
+  return out;
+}
+
+function buildMockAiSuggestion(type: 'daily' | 'weekly', employeeName: string) {
+  const intro = type === 'daily'
+    ? '今日の作業分析から、以下のAI化提案があります'
+    : '今週の作業分析から、以下のAI化提案があります';
+  return {
+    ok: true,
+    employee: { id: 0, name: employeeName },
+    logId: 0,
+    suggestion: `${intro}\n\n1. 【メール対応の自動化】定型メールをClaude APIで自動返信 → 推奨ツール: Claude API\n2. 【議事録自動生成】録音から要約自動生成 → 推奨ツール: Whisper + Claude\n3. 【データ入力スクリプト化】Excel↔システム間の転記を自動化 → 推奨ツール: Python + openpyxl`,
+    actions: [
+      {
+        title: 'メール対応の自動化',
+        description: '定型メールの返信をClaude APIで自動化。週5時間の削減が見込めます。',
+        projectType: 'new',
+        businessCategory: 'dev_tools',
+      },
+      {
+        title: '会議議事録の自動生成',
+        description: '録音データからWhisper+ClaudeでMTG議事録を自動生成。週3時間削減。',
+        projectType: 'new',
+        businessCategory: 'dev_tools',
+      },
+    ],
+    spm_dev_agent_configured: !!process.env.SPM_DEV_AGENT_URL,
+    mock: true,
+  };
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -300,6 +378,11 @@ if (CLOUD_MODE) {
     if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
     const date = new Date().toLocaleDateString('sv-SE');
     try {
+      const summary = await getDailySummaryFromCloud(user.employee_id, date);
+      if (summary.categories.length === 0) {
+        res.json(buildMockScoreToday(date, user.employee_id));
+        return;
+      }
       const score = await calcDailyScore(user.employee_id, date);
       res.json(score);
     } catch (e) {
@@ -309,8 +392,14 @@ if (CLOUD_MODE) {
   app.get('/api/score/history', requireAuth, async (req, res) => {
     const user = (req as unknown as { user?: WmUser }).user;
     if (!user?.employee_id) { res.json({ scores: [] }); return; }
-    try { res.json({ scores: await getScoreHistory(user.employee_id, 30) }); }
-    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+    try {
+      const scores = await getScoreHistory(user.employee_id, 30);
+      if (scores.length === 0) {
+        res.json({ scores: buildMockScoreHistory(user.employee_id), mock: true });
+        return;
+      }
+      res.json({ scores });
+    } catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
   });
   app.get('/api/admin/scores', requireAuth, requireAdmin, async (_req, res) => {
     const date = new Date().toLocaleDateString('sv-SE');
@@ -472,6 +561,12 @@ businessCategory は以下から選択: dev_tools / sales / marketing / hr / fin
     const user = (req as unknown as { user?: WmUser }).user;
     if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
     try {
+      const today = new Date().toLocaleDateString('sv-SE');
+      const summary = await getDailySummaryFromCloud(user.employee_id, today);
+      if (summary.categories.length === 0) {
+        res.json(buildMockAiSuggestion('daily', user.name));
+        return;
+      }
       const result = await runAiSuggestion(user.employee_id, user.name, 'daily');
       res.json({ ok: true, employee: { id: user.employee_id, name: user.name }, ...result, spm_dev_agent_configured: !!process.env.SPM_DEV_AGENT_URL });
     } catch (e) {
@@ -483,6 +578,12 @@ businessCategory は以下から選択: dev_tools / sales / marketing / hr / fin
     const user = (req as unknown as { user?: WmUser }).user;
     if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
     try {
+      const days = await getWeeklySummaryFromCloud(user.employee_id);
+      const hasData = days.some((d) => d.categories.length > 0);
+      if (!hasData) {
+        res.json(buildMockAiSuggestion('weekly', user.name));
+        return;
+      }
       const result = await runAiSuggestion(user.employee_id, user.name, 'weekly');
       res.json({ ok: true, employee: { id: user.employee_id, name: user.name }, ...result, spm_dev_agent_configured: !!process.env.SPM_DEV_AGENT_URL });
     } catch (e) {

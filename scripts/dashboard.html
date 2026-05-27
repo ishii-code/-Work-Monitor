@@ -1103,12 +1103,14 @@ async function loadScore(){
     }
     // 今日（履歴の末尾を初期表示、なければ簡素な未計算カード）
     var today=scores[scores.length-1];
-    if(today){renderScoreToday(today);}
+    if(today){today.mock=today.mock||!!d.mock;renderScoreToday(today);}
     else{el.innerHTML='<div class="empty">今日のスコアはまだありません。「🔄 再計算」を押してください。</div>';}
   }catch(err){
     el.innerHTML='<div class="empty" style="color:var(--red)">取得エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
   }
 }
+
+function mockBanner(){return '<div style="background:#FFFBEB;border:1px solid #FCD34D;color:#92400E;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;opacity:.85">&#x1F4CA; サンプルデータ表示中（実データが蓄積されると自動置き換え）</div>';}
 
 function renderScoreToday(s){
   var b=(s.breakdown&&typeof s.breakdown==='object')?s.breakdown:{};
@@ -1122,23 +1124,33 @@ function renderScoreToday(s){
   }
   var cls=Array.isArray(b.classifications)?b.classifications:[];
   var byClass={A:0,B:0,C:0};
-  for(var i=0;i<cls.length;i++){var cc=cls[i];if(byClass[cc.classification]!==undefined)byClass[cc.classification]+=cc.total_minutes||0;}
+  for(var i=0;i<cls.length;i++){var cc=cls[i];if(byClass[cc.classification]!==undefined)byClass[cc.classification]+=(cc.total_minutes||cc.minutes||0);}
   var totalMin=byClass.A+byClass.B+byClass.C||1;
   function pctRow(label,v,col){
     var pct=Math.round(v/totalMin*100);
     return '<div class="cat-row"><div class="cat-name">'+label+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div><div class="cat-time">'+v+'分</div><div class="cat-pct">'+pct+'%</div></div>';
   }
-  var calA=Array.isArray(b.calendar_analysis)?b.calendar_analysis:[];
   var calCount={internal:0,external:0,focus:0,missionRelated:0};
-  for(var j=0;j<calA.length;j++){var ce=calA[j];calCount[ce.meeting_type]=(calCount[ce.meeting_type]||0)+1;if(ce.mission_related)calCount.missionRelated++;}
+  if(b.calendar_analysis&&!Array.isArray(b.calendar_analysis)&&typeof b.calendar_analysis==='object'){
+    calCount.internal=b.calendar_analysis.internal||0;
+    calCount.external=b.calendar_analysis.external||0;
+    calCount.focus=b.calendar_analysis.focus||0;
+    calCount.missionRelated=b.calendar_analysis.mission_related||0;
+  }else if(Array.isArray(b.calendar_analysis)){
+    for(var j=0;j<b.calendar_analysis.length;j++){var ce=b.calendar_analysis[j];if(calCount[ce.meeting_type]!==undefined)calCount[ce.meeting_type]++;if(ce.mission_related)calCount.missionRelated++;}
+  }
   var missionLinks=Array.isArray(b.mission_links)?b.mission_links:[];
   var msHtml=missionLinks.map(function(m){return '<div class="cat-row"><div class="cat-name">'+esc(m.title||('mission#'+m.mission_id))+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+Math.min(100,Math.round(m.minutes/2))+'%;background:#FCB900"></div></div><div class="cat-time">'+m.minutes+'分</div></div>';}).join('')||'<div class="empty" style="padding:12px">ミッション関連なし</div>';
+  var topActions=Array.isArray(b.top_actions)?b.top_actions:[];
+  var topActionsHtml=topActions.length>0?'<div class="section"><div class="section-title">&#x1F4A1; 主要なAI化候補</div>'+topActions.map(function(a,i){return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #F3F4F6"><div style="width:22px;height:22px;background:#FCB90020;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#B45309;flex-shrink:0">'+(i+1)+'</div><div style="font-size:13px">'+esc(a)+'</div></div>';}).join('')+'</div>':'';
   document.getElementById('scoreContent').innerHTML=
+    (s.mock?mockBanner():'')+
     '<div class="section" style="text-align:center"><div style="font-size:64px;font-weight:800;color:'+scoreColor(total)+'">'+total+'</div><div style="color:var(--muted)">総合スコア（'+s.date+'）</div></div>'+
     '<div class="section"><div class="section-title">内訳</div>'+bar('ミッション適合度 ×0.5',mf)+bar('雑務排除 ×0.3',wr)+bar('AI化進捗 ×0.2',ai)+'</div>'+
     '<div class="section"><div class="section-title">業務分類（A/B/C）</div>'+pctRow('A AI化可能',byClass.A,'#059669')+pctRow('B 必須・AI化困難',byClass.B,'#D97706')+pctRow('C 不要・AI化困難',byClass.C,'#DC2626')+'</div>'+
     '<div class="section"><div class="section-title">カレンダーMTG分析</div><div style="font-size:13px;color:var(--muted)">社内 '+calCount.internal+' / 社外 '+calCount.external+' / 集中時間 '+calCount.focus+' / ミッション関連 '+calCount.missionRelated+'</div></div>'+
-    '<div class="section"><div class="section-title">ミッション別貢献時間</div>'+msHtml+'</div>';
+    '<div class="section"><div class="section-title">ミッション別貢献時間</div>'+msHtml+'</div>'+
+    topActionsHtml;
 }
 
 async function recalcScore(){
@@ -1284,7 +1296,7 @@ async function genAiSuggestion(type){
     var d=await r.json();
     if(!r.ok){out.innerHTML='<div class="ai-result" style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</div>';st.textContent='';return;}
     lastAiLogs[type]={logId:d.logId,actions:d.actions||[],employeeName:(d.employee&&d.employee.name)||''};
-    var html='<div class="ai-result">'+esc(d.suggestion||'(空)')+'</div>';
+    var html=(d.mock?mockBanner():'')+'<div class="ai-result">'+esc(d.suggestion||'(空)')+'</div>';
     if(Array.isArray(d.actions)&&d.actions.length>0){
       html+='<div class="section-title" style="margin-top:16px">&#x1F680; spm-dev-agent へ送る</div>';
       html+=d.actions.map(function(a,i){
