@@ -33,11 +33,6 @@ import { createActivityRouter } from '../lib/server.js';
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
 
-function maskTail(value: string | undefined): string | null {
-  if (!value) return null;
-  return value.length <= 4 ? '*'.repeat(value.length) : '…' + value.slice(-4);
-}
-
 const CLOUD_MODE = !!process.env.DATABASE_URL;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -264,14 +259,11 @@ if (!CLOUD_MODE) {
 
 app.get('/api/settings', (_req, res) => {
   res.json({
-    cloud_api_url: process.env.CLOUD_API_URL ?? null,
-    employee_api_key_set: !!process.env.EMPLOYEE_API_KEY,
-    employee_api_key_suffix: maskTail(process.env.EMPLOYEE_API_KEY),
-    admin_api_key_set: !!process.env.ADMIN_API_KEY,
-    admin_api_key_suffix: maskTail(process.env.ADMIN_API_KEY),
-    slack_webhook_set: !!process.env.SLACK_WEBHOOK_URL,
-    anthropic_api_key_set: !!process.env.ANTHROPIC_API_KEY,
     database_url_set: !!process.env.DATABASE_URL,
+    admin_api_key_set: !!process.env.ADMIN_API_KEY,
+    auth_secret_set: !!(process.env.AUTH_SECRET && process.env.AUTH_SECRET.length >= 16),
+    anthropic_api_key_set: !!process.env.ANTHROPIC_API_KEY,
+    slack_webhook_set: !!process.env.SLACK_WEBHOOK_URL,
   });
 });
 

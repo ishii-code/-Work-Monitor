@@ -258,51 +258,69 @@
     </div>
   </div>
   <div id="onboardSection" class="section" style="display:none;margin-bottom:16px">
-    <div class="section-title">&#x1F465; 社員オンボーディング</div>
+    <div class="section-title">&#x1F465; 社員PC導入手順</div>
     <div class="step">
       <div class="step-num">1</div>
       <div class="step-body">
-        <div class="step-title">APIキーを生成</div>
-        <div class="step-desc">社員ごとにユニークな 32 文字のキーを発行します</div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="generateKey()">&#x1F511; 生成</button>
-          <code id="generatedKey" style="font-size:12px">未生成</code>
-        </div>
+        <div class="step-title">Node.js 確認・インストール</div>
+        <div class="step-desc">社員PCに Node.js v20 以上が必要です</div>
+        <a class="btn btn-primary" href="https://nodejs.org/ja" target="_blank" rel="noopener">&#x1F517; Node.js ダウンロードページ</a>
       </div>
     </div>
     <div class="step">
       <div class="step-num">2</div>
       <div class="step-body">
-        <div class="step-title">社員を DB に登録</div>
-        <div class="step-desc">PostgreSQL に以下の SQL を実行（社員名・メールは適宜変更）</div>
-        <div class="code-block"><button class="copy-btn" onclick="copyText('sqlBlock',this)">コピー</button><span id="sqlBlock">INSERT INTO employees (api_key, name, email)
-VALUES ('発行したAPIキー', '社員名', 'email@peco-japan.com');</span></div>
+        <div class="step-title">APIキーを発行</div>
+        <div class="step-desc">このキーを社員に渡し、次のStep3のSQL実行後にインストールコマンドと一緒に伝えてください</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="generateKey()">&#x1F511; APIキーを生成</button>
+          <code id="generatedKey" style="font-size:12px">未生成</code>
+        </div>
       </div>
     </div>
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-body">
-        <div class="step-title">社員に送るインストールコマンド</div>
-        <div class="step-desc">社員が macOS ターミナルで 1 行実行するだけで導入完了</div>
-        <div class="code-block"><button class="copy-btn" onclick="copyText('installBlock',this)">コピー</button><span id="installBlock">curl -fsSL https://raw.githubusercontent.com/ishii-code/-Work-Monitor/main/install.sh | bash</span></div>
+        <div class="step-title">社員をDBに登録（管理者が実行）</div>
+        <div class="step-desc">社員名・メールを入力すると INSERT 文が生成されます</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <input id="onboardName" type="text" placeholder="社員名" oninput="rebuildOnboardSql()" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit">
+          <input id="onboardEmail" type="email" placeholder="email@peco-japan.com" oninput="rebuildOnboardSql()" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit">
+        </div>
+        <div class="code-block"><button class="copy-btn" onclick="copyText('sqlBlock',this)">コピー</button><span id="sqlBlock">INSERT INTO employees (api_key, name, email)
+VALUES ('発行したキー', '社員名', 'メール');</span></div>
+        <div style="font-size:11px;color:var(--orange);margin-top:6px">&#x26A0;&#xFE0F; このSQLをターミナルで実行してください（管理者のみ）</div>
       </div>
     </div>
     <div class="step">
       <div class="step-num">4</div>
       <div class="step-body">
-        <div class="step-title">社員が入力する値</div>
-        <div class="step-desc">インストーラの対話プロンプトで以下を入力させる</div>
-        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12px;align-items:center">
-          <span style="color:var(--muted)">CLOUD_API_URL:</span><code id="onboardCloudUrl">未設定</code>
-          <span style="color:var(--muted)">EMPLOYEE_API_KEY:</span><code>Step 1 で生成したキー</code>
-        </div>
+        <div class="step-title">社員にインストールコマンドを送る</div>
+        <div class="step-desc">社員はこのコマンドをターミナルに貼り付けて実行します。Step2で発行したAPIキーと、CLOUD_API_URLの入力を求められます</div>
+        <div class="code-block"><button class="copy-btn" onclick="copyText('installBlock',this)">コピー</button><span id="installBlock">curl -fsSL https://raw.githubusercontent.com/ishii-code/-Work-Monitor/main/install.sh | bash</span></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:10px;margin-bottom:4px">CLOUD_API_URL（社員に伝える値）:</div>
+        <div class="code-block"><button class="copy-btn" onclick="copyText('cloudApiUrlBlock',this)">コピー</button><span id="cloudApiUrlBlock">https://work-monitor-api-842623777962.asia-northeast1.run.app</span></div>
       </div>
     </div>
     <div class="step">
       <div class="step-num">5</div>
       <div class="step-body">
         <div class="step-title">アクセシビリティ許可</div>
-        <div class="step-desc">システム設定 → プライバシーとセキュリティ → アクセシビリティ → <code>node</code> を追加してオン</div>
+        <div class="step-desc">この設定をしないとアプリ名が取得できません</div>
+        <ol style="font-size:13px;color:var(--text);margin-left:20px;line-height:1.9">
+          <li>Mac の「システム設定」を開く</li>
+          <li>「プライバシーとセキュリティ」→「アクセシビリティ」</li>
+          <li>左下の「+」ボタンをクリック</li>
+          <li><code>/usr/local/bin/node</code>（または <code>which node</code> で表示されるパス）を追加してオンにする</li>
+        </ol>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-body">
+        <div class="step-title">動作確認</div>
+        <div class="step-desc">インストール完了後、5分以内にチームタブに社員のデータが表示されれば完了です</div>
+        <div style="font-size:13px;color:var(--text);margin-top:6px">&#x2705; チームタブ → 社員名が表示され、稼働時間が増えていけば正常です</div>
       </div>
     </div>
   </div>
@@ -319,7 +337,7 @@ VALUES ('発行したAPIキー', '社員名', 'email@peco-japan.com');</span></d
   <div class="section" style="margin-bottom:16px">
     <div class="section-title">デーモン制御</div>
     <div class="settings-row">
-      <div><div class="settings-label">監視デーモン</div><div class="settings-desc">10秒ごとにアクティブウィンドウを記録</div></div>
+      <div><div class="settings-label">モニタリングデーモン</div><div class="settings-desc">10秒ごとにアクティブウィンドウを記録</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-green" onclick="startDaemon()">&#x25B6; 開始</button>
         <button class="btn btn-danger" onclick="stopDaemon()">&#x25A0; 停止</button>
@@ -419,7 +437,7 @@ async function checkStatus(){
   const pill=document.getElementById('daemonPill');
   if(r.running){
     pill.className='daemon-pill on';
-    pill.innerHTML='<div class="pulse on"></div>監視中';
+    pill.innerHTML='<div class="pulse on"></div>モニタリング中';
   }else{
     pill.className='daemon-pill off';
     pill.innerHTML='<div class="pulse off"></div>停止中';
@@ -737,29 +755,32 @@ async function loadSettings(){
   try{
     var r=await fetch('/api/settings');
     var s=await r.json();
-    function pill(ok,suffix){return ok?'<span class="setting-pill on">&#x2705; 設定済み'+(suffix?' '+esc(suffix):'')+'</span>':'<span class="setting-pill off">&#x26A0;&#xFE0F; 未設定</span>';}
+    function pill(ok,note){return ok?'<span class="setting-pill on">&#x2705; 設定済み</span>':'<span class="setting-pill off">&#x26A0;&#xFE0F; 未設定'+(note?'<span style="margin-left:6px;color:var(--muted);font-weight:500">'+esc(note)+'</span>':'')+'</span>';}
     var rows=[
-      {k:'CLOUD_API_URL',v:s.cloud_api_url?'<code>'+esc(s.cloud_api_url)+'</code>':pill(false),desc:'クラウド API のベース URL'},
-      {k:'EMPLOYEE_API_KEY',v:pill(s.employee_api_key_set,s.employee_api_key_suffix||''),desc:'この社員PC用の認証キー'},
-      {k:'ADMIN_API_KEY',v:pill(s.admin_api_key_set,s.admin_api_key_suffix||''),desc:'管理者ビュー・オンボーディング用'},
-      {k:'SLACK_WEBHOOK_URL',v:pill(s.slack_webhook_set),desc:'日報送信先'},
-      {k:'ANTHROPIC_API_KEY',v:pill(s.anthropic_api_key_set),desc:'AI 提案生成に使用'},
-      {k:'DATABASE_URL',v:pill(s.database_url_set),desc:'クラウドAPI server 側のみ必要'},
+      {k:'DATABASE_URL',v:pill(s.database_url_set),desc:'PostgreSQL 接続文字列（必須）'},
+      {k:'ADMIN_API_KEY',v:pill(s.admin_api_key_set),desc:'管理者用 API キー'},
+      {k:'AUTH_SECRET',v:pill(s.auth_secret_set),desc:'JWT 署名鍵（必須・16文字以上）'},
+      {k:'ANTHROPIC_API_KEY',v:pill(s.anthropic_api_key_set,s.anthropic_api_key_set?'':'AI提案が使えません'),desc:'AI提案生成に使用'},
+      {k:'SLACK_WEBHOOK_URL',v:pill(s.slack_webhook_set,s.slack_webhook_set?'':'任意'),desc:'日報送信先（任意）'},
     ];
     document.getElementById('settingsStatus').innerHTML=
       '<div style="display:flex;flex-direction:column;gap:0">'+rows.map(function(r){
         return '<div class="settings-row"><div><div class="settings-label">'+esc(r.k)+'</div><div class="settings-desc">'+esc(r.desc)+'</div></div><div>'+r.v+'</div></div>';
       }).join('')+'</div>';
     var ob=document.getElementById('onboardSection');
-    if(s.admin_api_key_set){
-      ob.style.display='block';
-      document.getElementById('onboardCloudUrl').textContent=s.cloud_api_url||'(未設定)';
-    }else{
-      ob.style.display='none';
-    }
+    var isAdmin=currentUser&&currentUser.role==='ADMIN';
+    ob.style.display=isAdmin?'block':'none';
   }catch(err){
     document.getElementById('settingsStatus').innerHTML='<div class="empty" style="color:var(--red)">取得エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
   }
+}
+
+var generatedApiKey='';
+function rebuildOnboardSql(){
+  var name=(document.getElementById('onboardName')||{}).value||'社員名';
+  var email=(document.getElementById('onboardEmail')||{}).value||'メール';
+  var key=generatedApiKey||'発行したキー';
+  document.getElementById('sqlBlock').textContent="INSERT INTO employees (api_key, name, email)\nVALUES ('"+key+"', '"+name.replace(/'/g,"''")+"', '"+email.replace(/'/g,"''")+"');";
 }
 
 async function testConnection(){
@@ -780,11 +801,13 @@ async function generateKey(){
   try{
     var r=await fetch('/api/settings/generate-key',{method:'POST'});
     var d=await r.json();
+    generatedApiKey=d.api_key;
     var el=document.getElementById('generatedKey');
     el.textContent=d.api_key;
     el.style.cursor='pointer';
     el.title='クリックでコピー';
     el.onclick=function(){navigator.clipboard.writeText(d.api_key);el.style.background='#D1FAE5';setTimeout(function(){el.style.background='';},900);};
+    rebuildOnboardSql();
   }catch(err){alert('生成失敗: '+(err&&err.message?err.message:String(err)));}
 }
 
