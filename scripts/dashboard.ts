@@ -51,6 +51,9 @@ import {
   getCalendarEvents,
   getAllCalendarEvents,
   listAllCalendarEmployees,
+  insertAiSuggestionLog,
+  markSpmProjectCreated,
+  getAiStatusPerEmployee,
 } from '../lib/cloud-db.js';
 import { createActivityRouter } from '../lib/server.js';
 import { calcDailyScore } from '../lib/scoring.js';
@@ -383,6 +386,115 @@ if (CLOUD_MODE) {
     catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
   });
 
+  // ── AI suggestion (USER + ADMIN) ──
+  async function runAiSuggestion(employeeId: number, employeeName: string, type: 'daily' | 'weekly'): Promise<{ suggestion: string; actions: Array<{ title: string; description: string; projectType: string; businessCategory: string }>; logId: number }> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY が未設定です');
+    const today = new Date().toLocaleDateString('sv-SE');
+    let promptIntro: string;
+    let catLines = '';
+    let appLines = '';
+    if (type === 'daily') {
+      const summary = await getDailySummaryFromCloud(employeeId, today);
+      catLines = summary.categories.map((c) => `- ${c.category}: ${Math.round(c.total_seconds / 60)}分`).join('\n');
+      appLines = summary.top_apps.map((a) => `- ${a.app_name}: ${Math.round(a.total_seconds / 60)}分`).join('\n');
+      promptIntro = `以下は社員「${employeeName}」の今日の作業ログです。`;
+    } else {
+      const days = await getWeeklySummaryFromCloud(employeeId);
+      const catTotals = new Map<string, number>();
+      const appTotals = new Map<string, number>();
+      for (const d of days) {
+        for (const c of d.categories) catTotals.set(c.category, (catTotals.get(c.category) ?? 0) + c.total_seconds);
+        for (const a of d.top_apps) appTotals.set(a.app_name, (appTotals.get(a.app_name) ?? 0) + a.total_seconds);
+      }
+      catLines = Array.from(catTotals.entries()).sort((a, b) => b[1] - a[1]).map(([k, v]) => `- ${k}: ${Math.round(v / 60)}分`).join('\n');
+      appLines = Array.from(appTotals.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => `- ${k}: ${Math.round(v / 60)}分`).join('\n');
+      promptIntro = `以下は社員「${employeeName}」の過去7日間の作業ログ集計です。今週最も時間を使った業務トップ5・各業務のA/B/C分類・AI化できる業務の具体的な提案・来週のアクション・先週比の改善状況を含めて回答してください。`;
+    }
+    const prompt = `${promptIntro}
+繰り返し作業・手動作業・時間がかかっている作業を分析し、AI や自動化で効率化できる上位3つを提案してください。
+日本語で、具体的なツール名（Claude / ChatGPT / Zapier / Python等）を含めて提案してください。
+
+【カテゴリ別】
+${catLines || '(記録なし)'}
+
+【使用アプリ】
+${appLines || '(記録なし)'}
+
+まず人間が読める提案を出し、その後に同じ内容を spm-dev-agent 用の JSON で返してください。
+businessCategory は以下から選択: dev_tools / sales / marketing / hr / finance / operations / customer_support / other
+
+回答フォーマット:
+1. 【タイトル】要約（1〜2行）→ 推奨ツール: XXX
+2. 【タイトル】...
+3. 【タイトル】...
+
+\`\`\`json
+{
+  "actions": [
+    {"title": "○○業務の自動化", "description": "詳細な要件説明（5〜10文）", "projectType": "new", "businessCategory": "dev_tools"}
+  ]
+}
+\`\`\``;
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = msg.content.map((b) => (b.type === 'text' ? b.text : '')).filter((s) => s.length > 0).join('\n').trim();
+    let actions: Array<{ title: string; description: string; projectType: string; businessCategory: string }> = [];
+    let humanText = text;
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]);
+        if (parsed && Array.isArray(parsed.actions)) {
+          actions = parsed.actions
+            .filter((a: unknown): a is Record<string, unknown> => !!a && typeof a === 'object')
+            .map((a: Record<string, unknown>) => ({
+              title: String(a.title ?? '').slice(0, 200),
+              description: String(a.description ?? '').slice(0, 2000),
+              projectType: String(a.projectType ?? 'new').slice(0, 32),
+              businessCategory: String(a.businessCategory ?? 'other').slice(0, 32),
+            }))
+            .filter((a: { title: string }) => a.title.length > 0);
+        }
+      } catch { /* ignore */ }
+      humanText = text.replace(/```json[\s\S]*?```/, '').trim();
+    }
+    const logId = await insertAiSuggestionLog(employeeId, type, humanText, actions);
+    return { suggestion: humanText, actions, logId };
+  }
+
+  app.get('/api/score/ai-suggestion', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    try {
+      const result = await runAiSuggestion(user.employee_id, user.name, 'daily');
+      res.json({ ok: true, employee: { id: user.employee_id, name: user.name }, ...result, spm_dev_agent_configured: !!process.env.SPM_DEV_AGENT_URL });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : 'failed').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/week/ai-suggestion', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    try {
+      const result = await runAiSuggestion(user.employee_id, user.name, 'weekly');
+      res.json({ ok: true, employee: { id: user.employee_id, name: user.name }, ...result, spm_dev_agent_configured: !!process.env.SPM_DEV_AGENT_URL });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : 'failed').slice(0, 300) });
+    }
+  });
+
+  app.get('/api/admin/ai-status', requireAuth, requireAdmin, async (_req, res) => {
+    try { res.json({ employees: await getAiStatusPerEmployee() }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+
   // ── Daily 08:00 cron: 全社員のカレンダー同期 ──
   cron.schedule('0 8 * * *', async () => {
     const date = new Date().toLocaleDateString('sv-SE');
@@ -702,9 +814,10 @@ businessCategory は以下から選択: dev_tools / sales / marketing / hr / fin
 });
 
 app.post('/api/admin/create-project', async (req, res) => {
-  const body = (req.body ?? {}) as { employeeName?: unknown; action?: unknown };
+  const body = (req.body ?? {}) as { employeeName?: unknown; action?: unknown; logId?: unknown };
   const employeeName = typeof body.employeeName === 'string' ? body.employeeName.slice(0, 100) : '';
   const action = body.action && typeof body.action === 'object' ? (body.action as Record<string, unknown>) : null;
+  const logId = typeof body.logId === 'number' && Number.isFinite(body.logId) ? body.logId : null;
   if (!employeeName || !action) {
     res.status(400).json({ error: 'employeeName と action が必須です' });
     return;
@@ -721,6 +834,7 @@ app.post('/api/admin/create-project', async (req, res) => {
   const agentUrl = process.env.SPM_DEV_AGENT_URL;
   if (!agentUrl) {
     const mockId = 'mock-' + Date.now().toString(36);
+    if (logId !== null) { try { await markSpmProjectCreated(logId, mockId); } catch { /* ignore */ } }
     res.json({
       ok: true,
       mock: true,
@@ -758,6 +872,7 @@ app.post('/api/admin/create-project', async (req, res) => {
       const projectUrl = String(
         data.projectUrl ?? data.url ?? `${agentUrl.replace(/\/$/, '')}/projects/${projectId}`
       );
+      if (logId !== null && projectId) { try { await markSpmProjectCreated(logId, projectId); } catch { /* ignore */ } }
       res.json({ ok: true, projectId, projectUrl });
     } else {
       res.status(upstream.status || 502).json({

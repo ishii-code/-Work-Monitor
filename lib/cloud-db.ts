@@ -145,7 +145,64 @@ export async function initCloudSchema(): Promise<void> {
       UNIQUE(employee_id, event_id)
     );
     CREATE INDEX IF NOT EXISTS idx_calendar_events_emp_date ON calendar_events(employee_id, date);
+
+    CREATE TABLE IF NOT EXISTS ai_suggestion_logs (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER REFERENCES employees(id),
+      suggestion_type TEXT NOT NULL,
+      suggestion_text TEXT,
+      actions JSONB,
+      spm_project_created BOOLEAN DEFAULT false,
+      spm_project_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_suggestion_logs_emp_created
+      ON ai_suggestion_logs(employee_id, created_at DESC);
   `);
+}
+
+// ── AI suggestion logs ──
+export interface AiSuggestionLog {
+  id: number;
+  employee_id: number;
+  suggestion_type: string;
+  suggestion_text: string | null;
+  actions: unknown;
+  spm_project_created: boolean;
+  spm_project_id: string | null;
+  created_at: string;
+}
+export async function insertAiSuggestionLog(employeeId: number, type: string, text: string, actions: unknown): Promise<number> {
+  const r = await getPool().query<{ id: number }>(
+    `INSERT INTO ai_suggestion_logs (employee_id, suggestion_type, suggestion_text, actions) VALUES ($1,$2,$3,$4) RETURNING id`,
+    [employeeId, type.slice(0, 32), text.slice(0, 8000), JSON.stringify(actions)]
+  );
+  return r.rows[0]!.id;
+}
+export async function markSpmProjectCreated(logId: number, projectId: string): Promise<void> {
+  await getPool().query(
+    `UPDATE ai_suggestion_logs SET spm_project_created = true, spm_project_id = $1 WHERE id = $2`,
+    [projectId.slice(0, 100), logId]
+  );
+}
+export async function getAiStatusPerEmployee(): Promise<Array<{ employee_id: number; employee_name: string; last_suggestion_at: string | null; total_suggestions: number; created_projects: number; status: string }>> {
+  const r = await getPool().query<{ employee_id: number; employee_name: string; last_suggestion_at: string | null; total_suggestions: number; created_projects: number }>(
+    `SELECT e.id AS employee_id,
+            e.name AS employee_name,
+            MAX(a.created_at) AS last_suggestion_at,
+            COUNT(a.id)::int AS total_suggestions,
+            COUNT(a.id) FILTER (WHERE a.spm_project_created = true)::int AS created_projects
+     FROM employees e
+     LEFT JOIN ai_suggestion_logs a ON a.employee_id = e.id
+     GROUP BY e.id, e.name
+     ORDER BY e.name ASC`
+  );
+  return r.rows.map((row) => {
+    let status = '未提案';
+    if (row.created_projects > 0) status = '実装中';
+    else if (row.total_suggestions > 0) status = '提案済み';
+    return { ...row, status };
+  });
 }
 
 // ── Missions ──

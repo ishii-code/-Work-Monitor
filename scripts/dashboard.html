@@ -209,6 +209,14 @@
     <div class="section-title">効率スコア推移</div>
     <div style="height:140px;position:relative"><canvas id="scoreChart"></canvas></div>
   </div>
+  <div class="section">
+    <div class="section-title">&#x1F916; 今週のAI化提案</div>
+    <div class="action-bar" style="margin-bottom:10px">
+      <button class="btn btn-primary" id="aiSugWeeklyBtn" onclick="genAiSuggestion('weekly')">提案を生成</button>
+      <span id="aiSugWeeklyStatus" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div id="aiSugWeeklyResult"></div>
+  </div>
 </div>
 <div id="page-team" class="page">
   <div id="teamWarning" style="display:none;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#991B1B">
@@ -247,9 +255,11 @@
 <div id="page-score" class="page">
   <div class="action-bar">
     <button class="btn btn-primary" id="recalcScoreBtn" onclick="recalcScore()">&#x1F504; 再計算</button>
+    <button class="btn btn-primary" id="aiSugDailyBtn" onclick="genAiSuggestion('daily')">&#x1F916; AI化提案を生成</button>
     <span id="scoreStatus" style="font-size:12px;color:var(--muted)"></span>
   </div>
   <div id="scoreContent"><div class="empty">読み込み中…</div></div>
+  <div id="aiSugDailyResult" style="margin-top:14px"></div>
   <div class="section" style="margin-top:16px">
     <div class="section-title">過去30日 スコア推移</div>
     <div style="height:240px;position:relative"><canvas id="scoreLineChart"></canvas></div>
@@ -621,6 +631,7 @@ async function loadTeam(){
     lastTeamData=d;
     loadOnboardingProgress();
     loadTeamScores();
+    await loadAiStatus();
     loadMonitoringLogs();
     var emps=Array.isArray(d.employees)?d.employees:[];
     var active=0,sumWork=0;
@@ -651,7 +662,7 @@ async function loadTeam(){
       var lastSeen=e.last_seen?new Date(e.last_seen).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'—';
       return '<div class="section clickable" style="margin-bottom:0" data-emp="'+e.employee_id+'" onclick="openEmpModal('+e.employee_id+')">'+
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px">'+
-          '<div style="min-width:0"><div style="font-size:15px;font-weight:700">'+esc(e.name)+'</div><div style="font-size:11px;color:var(--faint);margin-top:2px">'+esc(e.email)+'</div></div>'+
+          '<div style="min-width:0"><div style="font-size:15px;font-weight:700">'+esc(e.name)+aiStatusBadge(e.employee_id)+'</div><div style="font-size:11px;color:var(--faint);margin-top:2px">'+esc(e.email)+'</div></div>'+
           '<div style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:600;background:'+s.color+'15;color:'+s.color+'"><div class="pulse '+s.cls+'" style="color:'+s.color+'"></div>'+s.label+'</div>'+
         '</div>'+
         '<div class="stat-row" style="margin-bottom:14px">'+
@@ -813,7 +824,7 @@ async function loadSettings(){
   try{
     var r=await fetch('/api/settings');
     var s=await r.json();
-    function pill(ok,note){return ok?'<span class="setting-pill on">&#x2705; 設定済み</span>':'<span class="setting-pill off">&#x26A0;&#xFE0F; 未設定'+(note?'<span style="margin-left:6px;color:var(--muted);font-weight:500">'+esc(note)+'</span>':'')+'</span>';}
+    function pill(ok,note){return ok?'<span class="setting-pill on" style="white-space:nowrap">&#x2705; 設定済み</span>':'<span class="setting-pill off" style="white-space:nowrap">&#x26A0;&#xFE0F; 未設定'+(note?'<span style="margin-left:6px;color:var(--muted);font-weight:500;white-space:nowrap">'+esc(note)+'</span>':'')+'</span>';}
     var rows=[
       {k:'DATABASE_URL',v:pill(s.database_url_set),desc:'PostgreSQL 接続文字列（必須）'},
       {k:'ADMIN_API_KEY',v:pill(s.admin_api_key_set),desc:'管理者用 API キー'},
@@ -1256,6 +1267,98 @@ async function syncCalendarNow(){
   var r=await fetch('/api/calendar/sync');var d=await r.json();
   if(r.ok&&d.ok){alert('同期完了: '+d.count+' 件');loadCalendarSection();}
   else{alert('同期失敗: '+(d.error||r.status));}
+}
+
+var lastAiLogs={daily:null,weekly:null};
+async function genAiSuggestion(type){
+  var btnId=type==='daily'?'aiSugDailyBtn':'aiSugWeeklyBtn';
+  var outId=type==='daily'?'aiSugDailyResult':'aiSugWeeklyResult';
+  var stId=type==='daily'?'scoreStatus':'aiSugWeeklyStatus';
+  var btn=document.getElementById(btnId);
+  var out=document.getElementById(outId);
+  var st=document.getElementById(stId);
+  btn.disabled=true;st.innerHTML='<span class="spinner"></span> 分析中…';out.innerHTML='';
+  try{
+    var url=type==='daily'?'/api/score/ai-suggestion':'/api/week/ai-suggestion';
+    var r=await fetch(url);
+    var d=await r.json();
+    if(!r.ok){out.innerHTML='<div class="ai-result" style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</div>';st.textContent='';return;}
+    lastAiLogs[type]={logId:d.logId,actions:d.actions||[],employeeName:(d.employee&&d.employee.name)||''};
+    var html='<div class="ai-result">'+esc(d.suggestion||'(空)')+'</div>';
+    if(Array.isArray(d.actions)&&d.actions.length>0){
+      html+='<div class="section-title" style="margin-top:16px">&#x1F680; spm-dev-agent へ送る</div>';
+      html+=d.actions.map(function(a,i){
+        return '<div class="step" style="padding:10px 0">'+
+          '<div class="step-num" style="background:#FF6900;color:#fff">'+(i+1)+'</div>'+
+          '<div class="step-body">'+
+            '<div class="step-title">'+esc(a.title||'')+'</div>'+
+            '<div class="step-desc">'+esc((a.description||'').slice(0,200))+(a.description&&a.description.length>200?'…':'')+'</div>'+
+            '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">'+
+              '<button class="btn btn-primary" id="cpAi_'+type+'_'+i+'" onclick="createProjectFromAi(\''+type+'\','+i+')">&#x1F680; spm-dev-agentで要件定義を作成</button>'+
+              '<span id="cpAiSt_'+type+'_'+i+'" style="font-size:12px;color:var(--muted)"></span>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      }).join('');
+      if(!d.spm_dev_agent_configured){
+        html+='<div style="margin-top:10px;font-size:11px;color:var(--faint)">&#x26A0;&#xFE0F; SPM_DEV_AGENT_URL 未設定のため、ボタンを押すとモックレスポンスを返します</div>';
+      }
+    }
+    out.innerHTML=html;
+    st.textContent='✓ 生成完了';
+  }catch(err){
+    out.innerHTML='<div class="ai-result" style="color:var(--red)">通信エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
+    st.textContent='';
+  }finally{btn.disabled=false;}
+}
+
+async function createProjectFromAi(type,idx){
+  var ctx=lastAiLogs[type];
+  if(!ctx||!ctx.actions[idx])return;
+  var btn=document.getElementById('cpAi_'+type+'_'+idx);
+  var st=document.getElementById('cpAiSt_'+type+'_'+idx);
+  var orig=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> 作成中…';st.textContent='';
+  try{
+    var r=await fetch('/api/admin/create-project',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({employeeName:ctx.employeeName,action:ctx.actions[idx],logId:ctx.logId}),
+    });
+    var d=await r.json();
+    if(r.ok&&d.ok){
+      var link=d.projectUrl?' <a href="'+esc(d.projectUrl)+'" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline">確認</a>':'';
+      st.innerHTML='<span style="color:var(--green);font-weight:600">&#x2705; 作成完了</span>'+link+(d.mock?' <span style="color:var(--faint)">(mock)</span>':'');
+      btn.innerHTML='&#x2705; 作成済み';
+    }else{
+      st.innerHTML='<span style="color:var(--red);font-weight:600">&#x274C; 失敗: '+esc(d.error||('HTTP '+r.status))+'</span>';
+      btn.disabled=false;btn.innerHTML=orig;
+    }
+  }catch(err){
+    st.innerHTML='<span style="color:var(--red)">&#x274C; 通信エラー</span>';
+    btn.disabled=false;btn.innerHTML=orig;
+  }
+}
+
+var aiStatusByEmp={};
+async function loadAiStatus(){
+  if(!currentUser||currentUser.role!=='ADMIN'){aiStatusByEmp={};return;}
+  try{
+    var r=await fetch('/api/admin/ai-status');
+    if(!r.ok)return;
+    var d=await r.json();
+    var arr=Array.isArray(d.employees)?d.employees:[];
+    aiStatusByEmp={};
+    for(var i=0;i<arr.length;i++)aiStatusByEmp[arr[i].employee_id]=arr[i];
+  }catch{}
+}
+function aiStatusBadge(empId){
+  var s=aiStatusByEmp[empId];
+  if(!s)return '';
+  var st=s.status||'未提案';
+  var colorMap={'未提案':{bg:'#E5E7EB',fg:'#374151'},'提案済み':{bg:'#DBEAFE',fg:'#1E40AF'},'実装中':{bg:'#FED7AA',fg:'#9A3412'},'完了':{bg:'#D1FAE5',fg:'#065F46'}};
+  var c=colorMap[st]||colorMap['未提案'];
+  var date=s.last_suggestion_at?new Date(s.last_suggestion_at).toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'}):'';
+  return '<span style="background:'+c.bg+';color:'+c.fg+';padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;margin-left:6px">'+st+(date?' '+date:'')+'</span>';
 }
 
 async function loadTeamScores(){
