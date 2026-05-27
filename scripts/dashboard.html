@@ -1179,7 +1179,7 @@ async function loadRules(){
             :rr.classification==='B'?'<span style="background:#FED7AA;color:#9A3412;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700">B</span>'
             :'<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700">C</span>';
           return '<tr><td>'+esc(rr.app_name)+'</td><td>'+esc(rr.category)+'</td><td>'+clsBadge+'</td><td style="color:var(--muted);font-size:12px">'+esc(rr.reason||'-')+'</td>'+
-            '<td style="text-align:right"><button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="editRule('+rr.id+',\\''+esc(rr.classification)+'\\')">修正</button></td></tr>';
+            '<td style="text-align:right"><button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="editRule('+rr.id+',\''+esc(rr.classification)+'\')">修正</button></td></tr>';
         }).join('')+'</tbody></table></div>';
     }
     // 履歴
@@ -1216,7 +1216,7 @@ async function loadMissionsSection(){
     document.getElementById('missionsList').innerHTML=ms.map(function(m){
       return '<div class="settings-row"><div><div class="settings-label">[優先度'+m.priority+'] '+esc(m.title)+'</div>'+
         (m.description?'<div class="settings-desc">'+esc(m.description)+'</div>':'')+'</div>'+
-        '<div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="editMission('+m.id+',\\''+esc(m.title).replace(/\\\\/g,"\\\\\\\\").replace(/'/g,"\\\\'")+'\\','+m.priority+')">編集</button>'+
+        '<div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="editMission('+m.id+',\''+esc(m.title).replace(/\\/g,"\\\\").replace(/'/g,"\\'")+'\','+m.priority+')">編集</button>'+
         '<button class="btn btn-danger" style="padding:4px 9px;font-size:11px" onclick="delMission('+m.id+')">削除</button></div></div>';
     }).join('');
   }catch{sec.style.display='none';}
@@ -1288,7 +1288,7 @@ async function loadTeamScores(){
     document.getElementById('teamScoresGrid').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">'+
       scores.map(function(s){
         var total=Number(s.total_score)||0;
-        return '<div class="section clickable" style="margin-bottom:0;padding:14px;text-align:center" onclick="alert(\\''+esc(s.employee_name)+' \\\\n総合: '+total+'\\\\n適合度: '+(s.mission_fit_score||0)+'\\\\n排除: '+(s.waste_reduction_score||0)+'\\\\nAI進捗: '+(s.ai_progress_score||0)+'\\')">'+
+        return '<div class="section clickable" style="margin-bottom:0;padding:14px;text-align:center" onclick="alert(\''+esc(s.employee_name)+' \\n総合: '+total+'\\n適合度: '+(s.mission_fit_score||0)+'\\n排除: '+(s.waste_reduction_score||0)+'\\nAI進捗: '+(s.ai_progress_score||0)+'\')">'+
           '<div style="font-size:13px;font-weight:600;margin-bottom:4px">'+esc(s.employee_name)+'</div>'+
           '<div style="font-size:32px;font-weight:800;color:'+scoreColor(total)+'">'+total+'</div></div>';
       }).join('')+'</div>';
