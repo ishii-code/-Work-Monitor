@@ -14,6 +14,13 @@ import { dirname, join } from 'path';
 import { createRequire } from 'module';
 import { randomBytes } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  ensureDefaultAdmin,
+  createAuthRouter,
+  createUserAdminRouter,
+  createMonitorRouter,
+} from '../lib/auth.js';
+import { initCloudSchema } from '../lib/cloud-db.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
@@ -22,6 +29,8 @@ function maskTail(value: string | undefined): string | null {
   if (!value) return null;
   return value.length <= 4 ? '*'.repeat(value.length) : '…' + value.slice(-4);
 }
+
+const CLOUD_MODE = !!process.env.DATABASE_URL;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -87,10 +96,17 @@ function buildMockMonitor(date: string) {
 }
 
 const app = express();
-const PORT = 3011;
+const PORT = Number(process.env.PORT ?? 3011);
 
 app.use(express.json());
 app.use(express.static(join(__dirname, '../public')));
+
+// クラウドモード時のみ JWT 認証 + 認証 API + ユーザー管理 + /api/monitor を mount
+if (CLOUD_MODE) {
+  app.use(createAuthRouter());
+  app.use(createUserAdminRouter());
+  app.use(createMonitorRouter());
+}
 
 // ── API ──────────────────────────────────────────────
 
@@ -165,32 +181,25 @@ app.delete('/api/reset/:date', (req, res) => {
   res.json({ ok: true, deleted: count });
 });
 
-app.get('/api/admin/monitor', async (req, res) => {
-  const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const date = ISO_DATE_RE.test(dateParam) ? dateParam : new Date().toLocaleDateString('sv-SE');
-  const cloudUrl = process.env.CLOUD_API_URL;
-  const adminKey = process.env.ADMIN_API_KEY;
-
-  if (!cloudUrl || !adminKey) {
-    res.json(buildMockMonitor(date));
-    return;
-  }
-
-  try {
-    const upstream = await axios.get(
-      `${cloudUrl.replace(/\/$/, '')}/api/admin/monitor?date=${encodeURIComponent(date)}`,
-      {
-        headers: { 'X-API-Key': adminKey },
-        timeout: 15_000,
-        validateStatus: () => true,
-      }
-    );
-    res.status(upstream.status).json(upstream.data);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'upstream error';
-    res.status(502).json({ error: 'cloud API unreachable', detail: msg.slice(0, 200) });
-  }
-});
+// 旧 /api/admin/monitor は廃止。CLOUD_MODE では auth.ts が /api/monitor を mount。
+// 非 CLOUD_MODE（ローカル単体・DBなし）ではモックを返し、auth/me はダミー ADMIN を返す。
+if (!CLOUD_MODE) {
+  app.get('/api/monitor', (req, res) => {
+    const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
+    const date = ISO_DATE_RE.test(dateParam) ? dateParam : new Date().toLocaleDateString('sv-SE');
+    res.json({ ...buildMockMonitor(date), role: 'ADMIN' });
+  });
+  app.get('/api/auth/me', (_req, res) => {
+    res.json({
+      user: {
+        id: 0, name: 'ローカルユーザー', email: 'local@local', role: 'ADMIN',
+        must_change_password: false, employee_id: null, last_login_at: null, created_at: new Date().toISOString(),
+      },
+    });
+  });
+  app.post('/api/auth/logout', (_req, res) => res.json({ ok: true }));
+  app.get('/api/admin/users', (_req, res) => res.json({ users: [] }));
+}
 
 app.get('/api/settings', (_req, res) => {
   res.json({
@@ -250,9 +259,17 @@ app.get('/api/admin/ai-suggestion/:employeeId', async (req, res) => {
   const date = new Date().toLocaleDateString('sv-SE');
 
   let employees: Array<{ employee_id: number; name: string; categories: Array<{ category: string; total_seconds: number }>; top_apps: Array<{ app_name: string; total_seconds: number }>; total_seconds: number; idle_seconds: number }> = [];
-  if (cloudUrl && adminKey) {
+  if (CLOUD_MODE) {
     try {
-      const r = await axios.get(`${cloudUrl.replace(/\/$/, '')}/api/admin/monitor?date=${encodeURIComponent(date)}`, {
+      const { getMonitorOverview } = await import('../lib/cloud-db.js');
+      const rows = await getMonitorOverview(date);
+      employees = rows;
+    } catch {
+      // fall through to mock
+    }
+  } else if (cloudUrl && adminKey) {
+    try {
+      const r = await axios.get(`${cloudUrl.replace(/\/$/, '')}/api/monitor?date=${encodeURIComponent(date)}`, {
         headers: { 'X-API-Key': adminKey },
         timeout: 15_000,
         validateStatus: () => true,
@@ -261,7 +278,7 @@ app.get('/api/admin/ai-suggestion/:employeeId', async (req, res) => {
         employees = r.data.employees;
       }
     } catch {
-      // fall through to mock below
+      // fall through to mock
     }
   }
   if (employees.length === 0) {
@@ -438,6 +455,17 @@ const HTML = readFileSync(join(__dirname, 'dashboard.html'), 'utf-8');
 
 app.get('/', (_req, res) => { res.send(HTML); });
 
-app.listen(PORT, () => {
-  console.log(`\n📊 管理ダッシュボード: http://localhost:${PORT}\n`);
+async function bootstrap(): Promise<void> {
+  if (CLOUD_MODE) {
+    await initCloudSchema();
+    await ensureDefaultAdmin();
+  }
+  app.listen(PORT, () => {
+    console.log(`\n📊 ${CLOUD_MODE ? 'クラウド' : 'ローカル'}ダッシュボード: http://localhost:${PORT}\n`);
+  });
+}
+
+bootstrap().catch((e) => {
+  console.error('[dashboard] fatal:', e);
+  process.exit(1);
 });

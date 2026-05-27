@@ -51,6 +51,20 @@ export async function initCloudSchema(): Promise<void> {
       ON cloud_activities(date);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_cloud_activities_dedupe
       ON cloud_activities(employee_id, app_name, start_time);
+
+    CREATE TABLE IF NOT EXISTS wm_users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'USER',
+      must_change_password BOOLEAN NOT NULL DEFAULT true,
+      employee_id INTEGER REFERENCES employees(id),
+      last_login_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wm_users_email ON wm_users(lower(email));
   `);
 }
 

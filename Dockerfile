@@ -27,6 +27,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json tsconfig.json ./
 COPY lib ./lib
+COPY scripts ./scripts
 
 EXPOSE 8080
-CMD ["npx", "tsx", "lib/server.ts"]
+CMD ["npx", "tsx", "scripts/dashboard.ts"]

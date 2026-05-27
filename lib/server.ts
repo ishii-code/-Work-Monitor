@@ -7,11 +7,16 @@ import {
   initCloudSchema,
   getEmployeeByApiKey,
   insertActivities,
-  getMonitorOverview,
   type CloudActivityInput,
   type Employee,
 } from './cloud-db.js';
 import type { Category } from './types.js';
+import {
+  ensureDefaultAdmin,
+  createAuthRouter,
+  createUserAdminRouter,
+  createMonitorRouter,
+} from './auth.js';
 
 const ALLOWED_CATEGORIES: ReadonlySet<Category> = new Set<Category>([
   'core_dev',
@@ -50,16 +55,6 @@ async function requireApiKey(req: AuthedRequest, res: Response, next: NextFuncti
   } catch {
     res.status(500).json({ error: 'auth failure' });
   }
-}
-
-function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const adminKey = process.env.ADMIN_API_KEY;
-  const provided = req.header('x-api-key');
-  if (!adminKey || !provided || provided !== adminKey) {
-    res.status(401).json({ error: 'admin authentication required' });
-    return;
-  }
-  next();
 }
 
 function isIsoTimestamp(s: unknown): s is string {
@@ -111,6 +106,7 @@ export function createApp(): express.Express {
     res.json({ ok: true, service: 'pc-work-monitor-cloud', time: new Date().toISOString() });
   });
 
+  // 社員 PC daemon → クラウド (X-API-Key で employees.api_key を検証)
   app.post('/api/activities', requireApiKey, async (req: AuthedRequest, res: Response) => {
     const employee = req.employee;
     if (!employee) {
@@ -150,16 +146,10 @@ export function createApp(): express.Express {
     }
   });
 
-  app.get('/api/admin/monitor', requireAdmin, async (req: Request, res: Response) => {
-    const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-    const date = ISO_DATE_RE.test(dateParam) ? dateParam : new Date().toLocaleDateString('sv-SE');
-    try {
-      const overview = await getMonitorOverview(date);
-      res.json({ date, employees: overview });
-    } catch {
-      res.status(500).json({ error: 'failed to load overview' });
-    }
-  });
+  // JWT 認証付き API
+  app.use(createAuthRouter());
+  app.use(createUserAdminRouter());
+  app.use(createMonitorRouter());
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'not found' });
@@ -171,6 +161,7 @@ export function createApp(): express.Express {
 async function main(): Promise<void> {
   const port = Number(process.env.PORT ?? 8080);
   await initCloudSchema();
+  await ensureDefaultAdmin();
   const app = createApp();
   app.listen(port, () => {
     console.log(`[server] pc-work-monitor cloud API listening on :${port}`);

@@ -123,6 +123,26 @@
   .setting-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600}
   .setting-pill.on{background:#ECFDF5;color:var(--green);border:1px solid #A7F3D0}
   .setting-pill.off{background:#FEF2F2;color:var(--red);border:1px solid #FECACA}
+  .user-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:600;color:var(--text);background:var(--bg);border:1px solid var(--border)}
+  .role-badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:.3px}
+  .role-badge.admin{background:var(--yellow);color:#000}
+  .role-badge.user{background:#E5E7EB;color:var(--text)}
+  .login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#FFFBEB 0%,#FFF7ED 100%);display:none;align-items:center;justify-content:center;z-index:500;padding:24px}
+  .login-screen.show{display:flex}
+  .login-card{background:var(--surface);border-radius:12px;padding:32px;max-width:380px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.15)}
+  .login-card h2{font-size:18px;margin-bottom:6px}
+  .login-sub{font-size:12px;color:var(--muted);margin-bottom:20px}
+  .login-card label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;margin-top:12px}
+  .login-card input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit}
+  .login-card input:focus{outline:none;border-color:var(--yellow);box-shadow:0 0 0 3px rgba(252,185,0,.18)}
+  .login-card .btn{width:100%;justify-content:center;margin-top:18px;padding:11px}
+  .login-error{color:var(--red);font-size:12px;margin-top:10px;min-height:16px}
+  .force-banner{background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;padding:10px 16px;margin-bottom:14px;border-radius:var(--radius);font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .user-table{width:100%;border-collapse:collapse;font-size:13px}
+  .user-table th{text-align:left;padding:8px 10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);border-bottom:1px solid var(--border);background:var(--bg)}
+  .user-table td{padding:9px 10px;border-bottom:1px solid #F3F4F6}
+  .user-table tr:last-child td{border-bottom:none}
+  .temp-pw-box{background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-family:ui-monospace,monospace;font-size:13px}
   @media(max-width:700px){
     nav{overflow-x:auto}.stat-row{grid-template-columns:1fr 1fr}
     #mainGrid{grid-template-columns:1fr !important}
@@ -142,6 +162,13 @@
     <div id="daemonPill" class="daemon-pill off">
       <div class="pulse off"></div>確認中
     </div>
+    <div id="userInfo" style="display:none;align-items:center;gap:8px">
+      <span class="user-pill">
+        <span id="userName"></span>
+        <span id="userRole" class="role-badge user"></span>
+      </span>
+      <button class="refresh-btn" onclick="logoutUser()" title="ログアウト">&#x21AA; ログアウト</button>
+    </div>
   </div>
 </header>
 <nav>
@@ -149,10 +176,15 @@
   <button class="tab" onclick="showPage('week',this)">週間</button>
   <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
   <button class="tab" onclick="showPage('team',this)">&#x1F465; チーム</button>
+  <button class="tab" id="usersTab" style="display:none" onclick="showPage('users',this)">&#x1F464; ユーザー管理</button>
   <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
   <button class="tab" onclick="showPage('settings',this)">&#x2699;&#xFE0F; 設定</button>
 </nav>
 <main>
+<div id="forceBanner" class="force-banner" style="display:none">
+  <span>&#x1F510; 仮パスワードを使用中です。設定タブから新しいパスワードへ変更してください。</span>
+  <button class="btn btn-primary" onclick="showPage('settings',document.querySelector('.tab[onclick*=settings]'))">パスワード変更へ</button>
+</div>
 <div id="page-today" class="page active">
   <div class="stat-row" id="statRow"></div>
   <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px" id="mainGrid">
@@ -193,6 +225,18 @@
   </div>
   <div class="stat-row" id="teamStatRow"></div>
   <div id="teamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px"></div>
+</div>
+<div id="page-users" class="page">
+  <div class="action-bar">
+    <button class="btn btn-primary" onclick="openCreateUserModal()">&#x2795; 新規ユーザー作成</button>
+    <span id="usersStatus" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+  <div class="section"><div class="section-title">ユーザー一覧</div>
+    <table class="user-table">
+      <thead><tr><th>名前</th><th>メール</th><th>ロール</th><th>最終ログイン</th><th style="text-align:right">操作</th></tr></thead>
+      <tbody id="userTableBody"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+    </table>
+  </div>
 </div>
 <div id="page-privacy" class="page">
   <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400E">
@@ -263,6 +307,16 @@ VALUES ('発行したAPIキー', '社員名', 'email@peco-japan.com');</span></d
     </div>
   </div>
   <div class="section" style="margin-bottom:16px">
+    <div class="section-title">&#x1F510; パスワード変更</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end">
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">現在のパスワード</label><input id="pwCurrent" type="password" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px"></div>
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">新しいパスワード</label><input id="pwNew" type="password" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px"></div>
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">確認用</label><input id="pwConfirm" type="password" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px"></div>
+      <button class="btn btn-primary" onclick="submitChangePassword()">変更</button>
+    </div>
+    <div id="pwStatus" style="font-size:12px;margin-top:8px;min-height:16px"></div>
+  </div>
+  <div class="section" style="margin-bottom:16px">
     <div class="section-title">デーモン制御</div>
     <div class="settings-row">
       <div><div class="settings-label">監視デーモン</div><div class="settings-desc">10秒ごとにアクティブウィンドウを記録</div></div>
@@ -285,6 +339,45 @@ VALUES ('発行したAPIキー', '社員名', 'email@peco-japan.com');</span></d
   </div>
 </div>
 </main>
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <h2>&#x1F510; Work Monitor ログイン</h2>
+    <div class="login-sub">PECO 動物病院グループ</div>
+    <form onsubmit="event.preventDefault();submitLogin();">
+      <label>メールアドレス</label>
+      <input type="email" id="loginEmail" autocomplete="username" required>
+      <label>パスワード</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required>
+      <button type="submit" class="btn btn-primary" id="loginBtn">ログイン</button>
+      <div class="login-error" id="loginError"></div>
+    </form>
+  </div>
+</div>
+<div class="modal-backdrop" id="createUserModal" onclick="if(event.target===this)closeCreateUserModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head">
+      <div class="modal-title">新規ユーザー作成</div>
+      <button class="modal-close" onclick="closeCreateUserModal()" aria-label="閉じる">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="event.preventDefault();submitCreateUser();">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">メールアドレス</label>
+        <input id="newUserEmail" type="email" required style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">氏名</label>
+        <input id="newUserName" type="text" required style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">ロール</label>
+        <select id="newUserRole" style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px">
+          <option value="USER">USER（社員）</option>
+          <option value="ADMIN">ADMIN（管理者）</option>
+        </select>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">employee_id（任意・自分の作業データに紐づけ）</label>
+        <input id="newUserEmployeeId" type="number" min="1" style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;margin-bottom:14px">
+        <button type="submit" class="btn btn-primary" id="createUserSubmit" style="width:100%;justify-content:center">作成</button>
+      </form>
+      <div id="createUserResult"></div>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="empModal" onclick="if(event.target===this)closeEmpModal()">
   <div class="modal">
     <div class="modal-head">
@@ -317,7 +410,7 @@ function showPage(name,btn){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.getElementById('page-'+name).classList.add('active');
   if(btn)btn.classList.add('active');
-  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam,settings:loadSettings};
+  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam,settings:loadSettings,users:loadUsers};
   if(loaders[name])loaders[name]();
 }
 
@@ -727,7 +820,149 @@ async function resetToday(){
   loadToday();
 }
 
-loadToday();checkStatus();
+var currentUser=null;
+
+function setLoggedInUi(u){
+  currentUser=u;
+  document.getElementById('loginScreen').classList.remove('show');
+  document.body.style.overflow='';
+  var ui=document.getElementById('userInfo');
+  ui.style.display='flex';
+  document.getElementById('userName').textContent=u.name||u.email;
+  var rb=document.getElementById('userRole');
+  rb.textContent=u.role;
+  rb.className='role-badge '+(u.role==='ADMIN'?'admin':'user');
+  document.getElementById('usersTab').style.display=u.role==='ADMIN'?'':'none';
+  document.getElementById('forceBanner').style.display=u.must_change_password?'flex':'none';
+}
+function setLoggedOutUi(){
+  currentUser=null;
+  document.getElementById('userInfo').style.display='none';
+  document.getElementById('usersTab').style.display='none';
+  document.getElementById('forceBanner').style.display='none';
+  var ls=document.getElementById('loginScreen');
+  ls.classList.add('show');
+  document.body.style.overflow='hidden';
+  document.getElementById('loginError').textContent='';
+  setTimeout(function(){var el=document.getElementById('loginEmail');if(el)el.focus();},50);
+}
+async function fetchMe(){
+  try{
+    var r=await fetch('/api/auth/me');
+    if(!r.ok){setLoggedOutUi();return null;}
+    var d=await r.json();
+    setLoggedInUi(d.user);
+    return d.user;
+  }catch{setLoggedOutUi();return null;}
+}
+async function submitLogin(){
+  var btn=document.getElementById('loginBtn');
+  var err=document.getElementById('loginError');
+  err.textContent='';btn.disabled=true;btn.textContent='ログイン中…';
+  try{
+    var r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('loginEmail').value.trim(),password:document.getElementById('loginPassword').value})});
+    var d=await r.json();
+    if(r.ok&&d.ok){setLoggedInUi(d.user);loadToday();checkStatus();}
+    else err.textContent=d.error||('ログインに失敗しました（HTTP '+r.status+'）');
+  }catch(e){err.textContent='通信エラー: '+(e&&e.message?e.message:String(e));}
+  finally{btn.disabled=false;btn.textContent='ログイン';}
+}
+async function logoutUser(){
+  try{await fetch('/api/auth/logout',{method:'POST'});}catch{}
+  setLoggedOutUi();
+}
+async function submitChangePassword(){
+  var cur=document.getElementById('pwCurrent').value;
+  var nw=document.getElementById('pwNew').value;
+  var cf=document.getElementById('pwConfirm').value;
+  var st=document.getElementById('pwStatus');
+  st.textContent='';st.style.color='';
+  if(nw.length<8){st.style.color='var(--red)';st.textContent='8文字以上にしてください';return;}
+  if(nw!==cf){st.style.color='var(--red)';st.textContent='新パスワードと確認用が一致しません';return;}
+  try{
+    var r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:cur,newPassword:nw})});
+    var d=await r.json();
+    if(r.ok&&d.ok){
+      st.style.color='var(--green)';st.textContent='✅ 変更しました';
+      document.getElementById('pwCurrent').value='';document.getElementById('pwNew').value='';document.getElementById('pwConfirm').value='';
+      fetchMe();
+    }else{st.style.color='var(--red)';st.textContent='エラー: '+(d.error||('HTTP '+r.status));}
+  }catch(e){st.style.color='var(--red)';st.textContent='通信エラー';}
+}
+async function loadUsers(){
+  var body=document.getElementById('userTableBody');
+  try{
+    var r=await fetch('/api/admin/users');
+    var d=await r.json();
+    if(!r.ok){body.innerHTML='<tr><td colspan="5" class="empty" style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</td></tr>';return;}
+    var users=Array.isArray(d.users)?d.users:[];
+    if(users.length===0){body.innerHTML='<tr><td colspan="5" class="empty">ユーザーがいません</td></tr>';return;}
+    body.innerHTML=users.map(function(u){
+      var ll=u.last_login_at?new Date(u.last_login_at).toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+      var roleBadge='<span class="role-badge '+(u.role==='ADMIN'?'admin':'user')+'">'+esc(u.role)+'</span>';
+      var mcp=u.must_change_password?' <span style="color:var(--orange);font-size:11px">(仮)</span>':'';
+      var disableDel=currentUser&&currentUser.id===u.id?' disabled title="自分自身は削除不可"':'';
+      return '<tr><td>'+esc(u.name)+mcp+'</td><td style="color:var(--muted)">'+esc(u.email)+'</td><td>'+roleBadge+'</td><td style="color:var(--muted);font-size:12px">'+ll+'</td>'+
+        '<td style="text-align:right;white-space:nowrap"><button class="btn btn-green" style="padding:4px 9px;font-size:11px" onclick="resetUserPw('+u.id+')">PW再発行</button> '+
+        '<button class="btn btn-danger" style="padding:4px 9px;font-size:11px" onclick="deleteUserById('+u.id+')"'+disableDel+'>削除</button></td></tr>';
+    }).join('');
+  }catch(err){body.innerHTML='<tr><td colspan="5" class="empty" style="color:var(--red)">通信エラー</td></tr>';}
+}
+function openCreateUserModal(){
+  document.getElementById('newUserEmail').value='';
+  document.getElementById('newUserName').value='';
+  document.getElementById('newUserRole').value='USER';
+  document.getElementById('newUserEmployeeId').value='';
+  document.getElementById('createUserResult').innerHTML='';
+  document.getElementById('createUserModal').classList.add('show');
+}
+function closeCreateUserModal(){document.getElementById('createUserModal').classList.remove('show');}
+async function submitCreateUser(){
+  var btn=document.getElementById('createUserSubmit');
+  var out=document.getElementById('createUserResult');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> 作成中…';out.innerHTML='';
+  var empIdRaw=document.getElementById('newUserEmployeeId').value;
+  var payload={
+    email:document.getElementById('newUserEmail').value.trim(),
+    name:document.getElementById('newUserName').value.trim(),
+    role:document.getElementById('newUserRole').value,
+    employeeId:empIdRaw?Number(empIdRaw):null,
+  };
+  try{
+    var r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    var d=await r.json();
+    if(r.ok&&d.ok){
+      out.innerHTML='<div class="temp-pw-box"><span>仮パスワード: <strong id="tmpPwVal">'+esc(d.tempPassword)+'</strong></span><button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="copyTempPw()">コピー</button></div>'+
+        '<div style="font-size:11px;color:var(--muted);margin-top:6px">⚠️ この画面を閉じるとパスワードは表示されません。必ずコピーして本人に伝えてください。</div>';
+      loadUsers();
+    }else{out.innerHTML='<div style="color:var(--red);font-size:13px;margin-top:8px">'+esc(d.error||('HTTP '+r.status))+'</div>';}
+  }catch(e){out.innerHTML='<div style="color:var(--red);font-size:13px;margin-top:8px">通信エラー</div>';}
+  finally{btn.disabled=false;btn.innerHTML='作成';}
+}
+function copyTempPw(){
+  var t=document.getElementById('tmpPwVal').textContent;
+  navigator.clipboard.writeText(t);
+}
+async function deleteUserById(id){
+  if(!confirm('このユーザーを削除しますか？'))return;
+  var r=await fetch('/api/admin/users/'+id,{method:'DELETE'});
+  var d=await r.json();
+  if(r.ok&&d.ok){loadUsers();}else{alert('削除失敗: '+(d.error||r.status));}
+}
+async function resetUserPw(id){
+  if(!confirm('仮パスワードを再発行しますか？（旧パスワードは無効化されます）'))return;
+  var r=await fetch('/api/admin/users/'+id+'/reset-password',{method:'POST'});
+  var d=await r.json();
+  if(r.ok&&d.ok){
+    prompt('新しい仮パスワード（コピーして本人に送ってください）:',d.tempPassword);
+    loadUsers();
+  }else{alert('再発行失敗: '+(d.error||r.status));}
+}
+
+(async function init(){
+  var u=await fetchMe();
+  if(u){loadToday();checkStatus();}
+})();
 setInterval(function(){if(document.getElementById('page-today').classList.contains('active'))loadToday();},30000);
 setInterval(function(){if(document.getElementById('page-team').classList.contains('active'))loadTeam();},300000);
 setInterval(checkStatus,10000);
