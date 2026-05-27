@@ -19,8 +19,10 @@ import {
   createAuthRouter,
   createUserAdminRouter,
   createMonitorRouter,
+  requireAuth,
+  type WmUser,
 } from '../lib/auth.js';
-import { initCloudSchema } from '../lib/cloud-db.js';
+import { initCloudSchema, getMonitorOverview } from '../lib/cloud-db.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
@@ -110,12 +112,55 @@ if (CLOUD_MODE) {
 
 // ── API ──────────────────────────────────────────────
 
-app.get('/api/today', (_req, res) => {
-  const date = new Date().toLocaleDateString('sv-SE');
-  const summary = getDailySummary(date);
-  const activities = getTodayActivities(date);
-  res.json({ summary, activities: activities.slice(-50).reverse() });
-});
+if (CLOUD_MODE) {
+  app.get('/api/today', requireAuth, async (req, res) => {
+    const date = new Date().toLocaleDateString('sv-SE');
+    const user = (req as unknown as { user?: WmUser }).user;
+    const employeeId = user?.employee_id ?? null;
+    const empty = {
+      summary: {
+        date,
+        total_tracked_seconds: 0,
+        idle_seconds: 0,
+        categories: [],
+        top_apps: [],
+      },
+      activities: [],
+    };
+    if (!employeeId) {
+      res.json({ ...empty, note: 'no employee_id linked to this user' });
+      return;
+    }
+    try {
+      const rows = await getMonitorOverview(date);
+      const own = rows.find((r) => r.employee_id === employeeId);
+      if (!own) {
+        res.json(empty);
+        return;
+      }
+      res.json({
+        summary: {
+          date,
+          total_tracked_seconds: own.total_seconds,
+          idle_seconds: own.idle_seconds,
+          categories: own.categories,
+          top_apps: own.top_apps,
+        },
+        activities: [],
+      });
+    } catch (e) {
+      const m = e instanceof Error ? e.message : 'unknown';
+      res.status(500).json({ error: 'failed to load today', detail: m.slice(0, 200) });
+    }
+  });
+} else {
+  app.get('/api/today', (_req, res) => {
+    const date = new Date().toLocaleDateString('sv-SE');
+    const summary = getDailySummary(date);
+    const activities = getTodayActivities(date);
+    res.json({ summary, activities: activities.slice(-50).reverse() });
+  });
+}
 
 app.get('/api/week', (_req, res) => {
   const days: object[] = [];
@@ -151,6 +196,10 @@ app.post('/api/report', async (_req, res) => {
 });
 
 app.get('/api/status', (_req, res) => {
+  if (CLOUD_MODE) {
+    res.json({ running: true, cloud: true, detail: 'cloud mode' });
+    return;
+  }
   try {
     const out = execSync('launchctl list | grep pc-work-monitor').toString().trim();
     const running = out.length > 0 && !out.startsWith('-');
