@@ -7,6 +7,7 @@ import {
   initCloudSchema,
   getEmployeeByApiKey,
   insertActivities,
+  hasAnyActivities,
   type CloudActivityInput,
   type Employee,
 } from './cloud-db.js';
@@ -97,9 +98,13 @@ function validateActivity(raw: unknown): CloudActivityInput | null {
   };
 }
 
+export interface ActivityRouterOptions {
+  onAfterInsert?: (employee: Employee, accepted: number, wasFirstActivity: boolean) => Promise<void> | void;
+}
+
 // 社員 PC daemon からの activities アップロード受信ルーター
 // dashboard.ts でも mount するため切り出し
-export function createActivityRouter(): express.Router {
+export function createActivityRouter(opts: ActivityRouterOptions = {}): express.Router {
   const router = express.Router();
 
   router.get('/api/health', (_req, res) => {
@@ -138,8 +143,14 @@ export function createActivityRouter(): express.Router {
     }
 
     try {
+      const hadBefore = await hasAnyActivities(employee.id);
       const accepted = await insertActivities(employee.id, validated);
       res.json({ ok: true, accepted });
+      if (opts.onAfterInsert) {
+        Promise.resolve(opts.onAfterInsert(employee, accepted, !hadBefore && accepted > 0)).catch((e) => {
+          console.error('[onAfterInsert] error:', e instanceof Error ? e.message : String(e));
+        });
+      }
     } catch {
       res.status(500).json({ error: 'failed to persist activities' });
     }

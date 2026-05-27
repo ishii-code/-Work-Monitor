@@ -329,6 +329,41 @@ function deriveTurn(s: OnboardingStep['steps']): OnboardingStep['current_turn'] 
   return 'complete';
 }
 
+export async function listAllEmployees(): Promise<Array<{ id: number; name: string; email: string }>> {
+  const p = getPool();
+  const r = await p.query<{ id: number; name: string; email: string }>(
+    `SELECT id, name, email FROM employees ORDER BY name ASC`
+  );
+  return r.rows;
+}
+
+export async function linkUserEmployee(userId: number, employeeId: number | null): Promise<boolean> {
+  const p = getPool();
+  const r = await p.query(
+    `UPDATE wm_users SET employee_id = $1, updated_at = NOW() WHERE id = $2`,
+    [employeeId, userId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+export async function findEmployeeByEmail(email: string): Promise<{ id: number; name: string; email: string } | null> {
+  const p = getPool();
+  const r = await p.query<{ id: number; name: string; email: string }>(
+    `SELECT id, name, email FROM employees WHERE lower(email) = lower($1) LIMIT 1`,
+    [email]
+  );
+  return r.rows[0] ?? null;
+}
+
+export async function hasAnyActivities(employeeId: number): Promise<boolean> {
+  const p = getPool();
+  const r = await p.query<{ exists: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM cloud_activities WHERE employee_id = $1) AS exists`,
+    [employeeId]
+  );
+  return !!r.rows[0]?.exists;
+}
+
 export async function getOnboardingStatus(userId?: number): Promise<OnboardingStep[]> {
   const p = getPool();
   const filter = userId ? 'WHERE u.id = $1' : '';

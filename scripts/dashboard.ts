@@ -29,6 +29,9 @@ import {
   getDailySummaryFromCloud,
   getWeeklySummaryFromCloud,
   getOnboardingStatus,
+  listAllEmployees,
+  linkUserEmployee,
+  findEmployeeByEmail,
 } from '../lib/cloud-db.js';
 import { createActivityRouter } from '../lib/server.js';
 
@@ -110,10 +113,61 @@ app.use(express.static(join(__dirname, '../public')));
 //   - 社員PC daemon → /api/activities 受信 (X-API-Key 認証)
 //   - JWT 認証 + 認証 API + ユーザー管理 + /api/monitor
 if (CLOUD_MODE) {
-  app.use(createActivityRouter());
+  app.use(createActivityRouter({
+    onAfterInsert: async (employee, accepted, wasFirst) => {
+      if (!wasFirst || accepted <= 0) return;
+      if (!process.env.SLACK_WEBHOOK_URL) {
+        console.warn('[onboarding-slack] SLACK_WEBHOOK_URL 未設定のため通知スキップ');
+        return;
+      }
+      try {
+        await sendToSlack(`✅ ${employee.name}さんのWork Monitorが起動しました！`);
+      } catch (e) {
+        console.error('[onboarding-slack] 送信失敗:', e instanceof Error ? e.message : String(e));
+      }
+    },
+  }));
   app.use(createAuthRouter());
   app.use(createUserAdminRouter());
   app.use(createMonitorRouter());
+
+  app.get('/api/admin/employees', requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      res.json({ employees: await listAllEmployees() });
+    } catch (e) {
+      res.status(500).json({ error: 'failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
+    }
+  });
+
+  app.post('/api/admin/users/:id/link-employee', requireAuth, requireAdmin, async (req, res) => {
+    const userId = Number(req.params.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ error: 'invalid user id' });
+      return;
+    }
+    const body = (req.body ?? {}) as { employeeId?: unknown; autoMatch?: unknown };
+    let empId: number | null = null;
+    if (typeof body.employeeId === 'number' && Number.isFinite(body.employeeId)) {
+      empId = body.employeeId;
+    } else if (body.autoMatch === true) {
+      const { getUserById } = await import('../lib/auth.js');
+      const u = await getUserById(userId);
+      if (!u) { res.status(404).json({ error: 'user not found' }); return; }
+      const match = await findEmployeeByEmail(u.email);
+      if (!match) { res.status(404).json({ error: 'メール一致する employee が見つかりません' }); return; }
+      empId = match.id;
+    } else {
+      res.status(400).json({ error: 'employeeId か autoMatch:true が必須です' });
+      return;
+    }
+    try {
+      const ok = await linkUserEmployee(userId, empId);
+      if (!ok) { res.status(404).json({ error: 'user not found' }); return; }
+      res.json({ ok: true, employeeId: empId });
+    } catch (e) {
+      res.status(500).json({ error: 'link failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
+    }
+  });
 
   app.get('/api/admin/onboarding', requireAuth, requireAdmin, async (_req, res) => {
     try {
