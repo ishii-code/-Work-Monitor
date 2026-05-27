@@ -97,17 +97,16 @@ function validateActivity(raw: unknown): CloudActivityInput | null {
   };
 }
 
-export function createApp(): express.Express {
-  const app = express();
-  app.disable('x-powered-by');
-  app.use(express.json({ limit: '2mb' }));
+// 社員 PC daemon からの activities アップロード受信ルーター
+// dashboard.ts でも mount するため切り出し
+export function createActivityRouter(): express.Router {
+  const router = express.Router();
 
-  app.get('/api/health', (_req, res) => {
+  router.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'pc-work-monitor-cloud', time: new Date().toISOString() });
   });
 
-  // 社員 PC daemon → クラウド (X-API-Key で employees.api_key を検証)
-  app.post('/api/activities', requireApiKey, async (req: AuthedRequest, res: Response) => {
+  router.post('/api/activities', requireApiKey, async (req: AuthedRequest, res: Response) => {
     const employee = req.employee;
     if (!employee) {
       res.status(401).json({ error: 'unauthenticated' });
@@ -145,6 +144,17 @@ export function createApp(): express.Express {
       res.status(500).json({ error: 'failed to persist activities' });
     }
   });
+
+  return router;
+}
+
+export function createApp(): express.Express {
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '2mb' }));
+
+  // 社員 PC daemon → クラウド (X-API-Key 認証)
+  app.use(createActivityRouter());
 
   // JWT 認証付き API
   app.use(createAuthRouter());

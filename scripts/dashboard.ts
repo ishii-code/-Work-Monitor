@@ -28,6 +28,7 @@ import {
   getDailySummaryFromCloud,
   getWeeklySummaryFromCloud,
 } from '../lib/cloud-db.js';
+import { createActivityRouter } from '../lib/server.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
@@ -108,8 +109,11 @@ const PORT = Number(process.env.PORT ?? 3011);
 app.use(express.json());
 app.use(express.static(join(__dirname, '../public')));
 
-// クラウドモード時のみ JWT 認証 + 認証 API + ユーザー管理 + /api/monitor を mount
+// クラウドモード時のみ
+//   - 社員PC daemon → /api/activities 受信 (X-API-Key 認証)
+//   - JWT 認証 + 認証 API + ユーザー管理 + /api/monitor
 if (CLOUD_MODE) {
+  app.use(createActivityRouter());
   app.use(createAuthRouter());
   app.use(createUserAdminRouter());
   app.use(createMonitorRouter());
