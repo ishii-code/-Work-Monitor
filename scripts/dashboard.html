@@ -178,7 +178,7 @@
   <button class="tab" onclick="showPage('team',this)">&#x1F465; チーム</button>
   <button class="tab" id="usersTab" style="display:none" onclick="showPage('users',this)">&#x1F464; ユーザー管理</button>
   <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
-  <button class="tab" onclick="showPage('settings',this)">&#x2699;&#xFE0F; 設定</button>
+  <button class="tab" onclick="showPage('settings',this)">⚙️ 設定</button>
 </nav>
 <main>
 <div id="forceBanner" class="force-banner" style="display:none">
@@ -389,16 +389,16 @@ VALUES ('発行したAPIキー', '社員名', 'email@peco-japan.com');</span></d
 </div>
 <script>
 const CAT={
-  core_dev:{label:'&#x2699;&#xFE0F; コア開発',color:'#FCB900'},
-  communication:{label:'&#x1F4AC; コミュニケーション',color:'#3B82F6'},
-  meeting:{label:'&#x1F4F9; ミーティング',color:'#7C3AED'},
-  research:{label:'&#x1F50D; 調査・リサーチ',color:'#10B981'},
-  admin:{label:'&#x1F5C2; 管理・事務',color:'#9CA3AF'},
-  design:{label:'&#x1F3A8; デザイン',color:'#F472B6'},
-  ai_tool:{label:'&#x1F916; AIツール',color:'#FF6900'},
-  entertainment:{label:'&#x1F3AE; エンタメ',color:'#E879F9'},
-  idle:{label:'&#x1F634; アイドル',color:'#D1D5DB'},
-  other:{label:'&#x2753; その他',color:'#CBD5E1'},
+  core_dev:{label:'⚙️ コア開発',color:'#FCB900'},
+  communication:{label:'💬 コミュニケーション',color:'#3B82F6'},
+  meeting:{label:'📹 ミーティング',color:'#7C3AED'},
+  research:{label:'🔍 調査・リサーチ',color:'#10B981'},
+  admin:{label:'🗂 管理・事務',color:'#9CA3AF'},
+  design:{label:'🎨 デザイン',color:'#F472B6'},
+  ai_tool:{label:'🤖 AIツール',color:'#FF6900'},
+  entertainment:{label:'🎮 エンタメ',color:'#E879F9'},
+  idle:{label:'😴 アイドル',color:'#D1D5DB'},
+  other:{label:'❓ その他',color:'#CBD5E1'},
 };
 let pieChart,weekChart,scoreChart;
 
@@ -515,7 +515,7 @@ async function loadInsight(){
     '<div class="score-detail"><div class="score-summary">'+insight.summary+'</div><div class="score-sub">効率スコア '+sc+'/100 &nbsp;&middot;&nbsp; '+insight.date+'</div></div>'+
     '</div></div>'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'+
-    '<div class="section"><div class="section-title">&#x1F916; AI自動化提案</div>'+(sugs||'<div class="empty">提案なし</div>')+'</div>'+
+    '<div class="section"><div class="section-title">🤖 AI自動化提案</div>'+(sugs||'<div class="empty">提案なし</div>')+'</div>'+
     '<div class="section"><div class="section-title">&#x2705; 明日のアクション</div>'+(acts||'<div class="empty">なし</div>')+'</div>'+
     '</div>';
   new Chart(document.getElementById('scoreRing'),{
@@ -649,7 +649,7 @@ function openEmpModal(id){
     '<div class="section" style="box-shadow:none;margin-bottom:12px"><div class="section-title">カテゴリ別時間</div>'+catRows+'</div>'+
     '<div class="section" style="box-shadow:none;margin-bottom:12px"><div class="section-title">使用アプリ一覧</div>'+appRows+'</div>'+
     '<div class="action-bar" style="margin-bottom:10px">'+
-      '<button class="btn btn-primary" id="aiSugBtn" onclick="generateAiSuggestion('+e.employee_id+')">&#x1F916; AI化提案を生成</button>'+
+      '<button class="btn btn-primary" id="aiSugBtn" onclick="generateAiSuggestion('+e.employee_id+')">🤖 AI化提案を生成</button>'+
       '<span id="aiSugStatus" style="font-size:12px;color:var(--muted)"></span>'+
     '</div>'+
     '<div id="aiSugResult"></div>';
