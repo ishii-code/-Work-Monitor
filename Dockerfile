@@ -28,6 +28,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json tsconfig.json ./
 COPY lib ./lib
 COPY scripts ./scripts
+COPY public ./public
 
 EXPOSE 8080
 CMD ["npx", "tsx", "scripts/dashboard.ts"]
