@@ -75,7 +75,291 @@ export async function initCloudSchema(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_monitoring_logs_employee_created
       ON monitoring_logs(employee_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS missions (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER REFERENCES employees(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER DEFAULT 1,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_missions_employee ON missions(employee_id);
+
+    CREATE TABLE IF NOT EXISTS classification_rules (
+      id SERIAL PRIMARY KEY,
+      app_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      classification TEXT NOT NULL,
+      reason TEXT,
+      modified_by INTEGER REFERENCES wm_users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(app_name, category)
+    );
+
+    CREATE TABLE IF NOT EXISTS classification_history (
+      id SERIAL PRIMARY KEY,
+      rule_id INTEGER REFERENCES classification_rules(id),
+      old_classification TEXT,
+      new_classification TEXT NOT NULL,
+      reason TEXT,
+      modified_by INTEGER REFERENCES wm_users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_scores (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER REFERENCES employees(id),
+      date TEXT NOT NULL,
+      mission_fit_score NUMERIC,
+      waste_reduction_score NUMERIC,
+      ai_progress_score NUMERIC,
+      total_score NUMERIC,
+      breakdown JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(employee_id, date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_daily_scores_emp_date ON daily_scores(employee_id, date DESC);
+
+    CREATE TABLE IF NOT EXISTS calendar_tokens (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER REFERENCES employees(id) UNIQUE,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expiry TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER REFERENCES employees(id),
+      event_id TEXT NOT NULL,
+      title TEXT,
+      start_time TIMESTAMPTZ,
+      end_time TIMESTAMPTZ,
+      meeting_type TEXT,
+      attendee_domains JSONB,
+      date TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(employee_id, event_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_calendar_events_emp_date ON calendar_events(employee_id, date);
   `);
+}
+
+// ── Missions ──
+export interface Mission {
+  id: number;
+  employee_id: number | null;
+  title: string;
+  description: string | null;
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+}
+export async function listMissions(employeeId: number): Promise<Mission[]> {
+  const r = await getPool().query<Mission>(
+    `SELECT * FROM missions WHERE employee_id = $1 AND is_active = true ORDER BY priority DESC, created_at DESC`,
+    [employeeId]
+  );
+  return r.rows;
+}
+export async function listAllMissions(): Promise<Array<Mission & { employee_name: string }>> {
+  const r = await getPool().query<Mission & { employee_name: string }>(
+    `SELECT m.*, COALESCE(e.name,'(未紐づけ)') AS employee_name
+     FROM missions m LEFT JOIN employees e ON e.id = m.employee_id
+     WHERE m.is_active = true ORDER BY m.priority DESC, m.created_at DESC`
+  );
+  return r.rows;
+}
+export async function createMission(employeeId: number, title: string, description: string | null, priority: number): Promise<Mission> {
+  const r = await getPool().query<Mission>(
+    `INSERT INTO missions (employee_id, title, description, priority) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [employeeId, title.slice(0, 200), description ? description.slice(0, 2000) : null, priority | 0]
+  );
+  return r.rows[0]!;
+}
+export async function updateMission(id: number, employeeId: number, fields: { title?: string; description?: string | null; priority?: number; is_active?: boolean }): Promise<boolean> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 1;
+  if (fields.title !== undefined) { sets.push(`title = $${i++}`); vals.push(fields.title.slice(0, 200)); }
+  if (fields.description !== undefined) { sets.push(`description = $${i++}`); vals.push(fields.description ? fields.description.slice(0, 2000) : null); }
+  if (fields.priority !== undefined) { sets.push(`priority = $${i++}`); vals.push(fields.priority | 0); }
+  if (fields.is_active !== undefined) { sets.push(`is_active = $${i++}`); vals.push(!!fields.is_active); }
+  if (sets.length === 0) return false;
+  vals.push(id, employeeId);
+  const r = await getPool().query(`UPDATE missions SET ${sets.join(', ')} WHERE id = $${i++} AND employee_id = $${i}`, vals);
+  return (r.rowCount ?? 0) > 0;
+}
+export async function deleteMission(id: number, employeeId: number): Promise<boolean> {
+  const r = await getPool().query(`DELETE FROM missions WHERE id = $1 AND employee_id = $2`, [id, employeeId]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+// ── Classification rules ──
+export interface ClassificationRule {
+  id: number;
+  app_name: string;
+  category: string;
+  classification: string;
+  reason: string | null;
+  modified_by: number | null;
+  created_at: string;
+}
+export async function listClassificationRules(): Promise<ClassificationRule[]> {
+  const r = await getPool().query<ClassificationRule>(
+    `SELECT * FROM classification_rules ORDER BY app_name ASC, category ASC`
+  );
+  return r.rows;
+}
+export async function upsertClassificationRule(appName: string, category: string, classification: string, reason: string | null, modifiedBy: number | null): Promise<ClassificationRule> {
+  const r = await getPool().query<ClassificationRule>(
+    `INSERT INTO classification_rules (app_name, category, classification, reason, modified_by)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (app_name, category) DO UPDATE SET classification = EXCLUDED.classification, reason = EXCLUDED.reason, modified_by = EXCLUDED.modified_by
+     RETURNING *`,
+    [appName.slice(0, 255), category.slice(0, 64), classification.slice(0, 4), reason ? reason.slice(0, 500) : null, modifiedBy]
+  );
+  return r.rows[0]!;
+}
+export async function updateClassificationRule(id: number, newClassification: string, reason: string | null, modifiedBy: number | null): Promise<boolean> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const old = await client.query<{ classification: string }>(`SELECT classification FROM classification_rules WHERE id = $1`, [id]);
+    if (old.rows.length === 0) { await client.query('ROLLBACK'); return false; }
+    await client.query(`UPDATE classification_rules SET classification = $1, reason = $2, modified_by = $3 WHERE id = $4`, [newClassification.slice(0, 4), reason ? reason.slice(0, 500) : null, modifiedBy, id]);
+    await client.query(`INSERT INTO classification_history (rule_id, old_classification, new_classification, reason, modified_by) VALUES ($1,$2,$3,$4,$5)`, [id, old.rows[0]!.classification, newClassification.slice(0, 4), reason ? reason.slice(0, 500) : null, modifiedBy]);
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    await client.query('ROLLBACK'); throw e;
+  } finally { client.release(); }
+}
+export async function listClassificationHistory(limit = 200): Promise<Array<{ id: number; rule_id: number; old_classification: string; new_classification: string; reason: string | null; modified_by: number | null; modifier_name: string; app_name: string; category: string; created_at: string }>> {
+  const r = await getPool().query<{ id: number; rule_id: number; old_classification: string; new_classification: string; reason: string | null; modified_by: number | null; modifier_name: string; app_name: string; category: string; created_at: string }>(
+    `SELECT h.*, COALESCE(u.name,'(削除)') AS modifier_name, r.app_name, r.category
+     FROM classification_history h
+     LEFT JOIN wm_users u ON u.id = h.modified_by
+     LEFT JOIN classification_rules r ON r.id = h.rule_id
+     ORDER BY h.created_at DESC LIMIT $1`,
+    [limit]
+  );
+  return r.rows;
+}
+
+// ── Daily scores ──
+export interface DailyScore {
+  id: number;
+  employee_id: number;
+  date: string;
+  mission_fit_score: number | null;
+  waste_reduction_score: number | null;
+  ai_progress_score: number | null;
+  total_score: number | null;
+  breakdown: unknown;
+  created_at: string;
+}
+export async function upsertDailyScore(employeeId: number, date: string, scores: { mission: number; waste: number; ai: number; total: number; breakdown: unknown }): Promise<void> {
+  await getPool().query(
+    `INSERT INTO daily_scores (employee_id, date, mission_fit_score, waste_reduction_score, ai_progress_score, total_score, breakdown)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (employee_id, date) DO UPDATE SET
+       mission_fit_score = EXCLUDED.mission_fit_score,
+       waste_reduction_score = EXCLUDED.waste_reduction_score,
+       ai_progress_score = EXCLUDED.ai_progress_score,
+       total_score = EXCLUDED.total_score,
+       breakdown = EXCLUDED.breakdown,
+       created_at = NOW()`,
+    [employeeId, date, scores.mission, scores.waste, scores.ai, scores.total, JSON.stringify(scores.breakdown)]
+  );
+}
+export async function getDailyScore(employeeId: number, date: string): Promise<DailyScore | null> {
+  const r = await getPool().query<DailyScore>(`SELECT * FROM daily_scores WHERE employee_id = $1 AND date = $2 LIMIT 1`, [employeeId, date]);
+  return r.rows[0] ?? null;
+}
+export async function getScoreHistory(employeeId: number, days = 30): Promise<DailyScore[]> {
+  const r = await getPool().query<DailyScore>(
+    `SELECT * FROM daily_scores WHERE employee_id = $1 AND date >= TO_CHAR(NOW() - ($2 || ' days')::interval, 'YYYY-MM-DD') ORDER BY date ASC`,
+    [employeeId, String(days)]
+  );
+  return r.rows;
+}
+export async function getAllTodayScores(date: string): Promise<Array<DailyScore & { employee_name: string }>> {
+  const r = await getPool().query<DailyScore & { employee_name: string }>(
+    `SELECT s.*, COALESCE(e.name,'(未紐づけ)') AS employee_name
+     FROM daily_scores s LEFT JOIN employees e ON e.id = s.employee_id
+     WHERE s.date = $1 ORDER BY s.total_score DESC NULLS LAST`,
+    [date]
+  );
+  return r.rows;
+}
+export async function getAllScoreHistory(days = 30): Promise<Array<DailyScore & { employee_name: string }>> {
+  const r = await getPool().query<DailyScore & { employee_name: string }>(
+    `SELECT s.*, COALESCE(e.name,'(未紐づけ)') AS employee_name
+     FROM daily_scores s LEFT JOIN employees e ON e.id = s.employee_id
+     WHERE s.date >= TO_CHAR(NOW() - ($1 || ' days')::interval, 'YYYY-MM-DD') ORDER BY s.date ASC`,
+    [String(days)]
+  );
+  return r.rows;
+}
+
+// ── Calendar ──
+export interface CalendarTokens {
+  employee_id: number;
+  access_token: string;
+  refresh_token: string;
+  expiry: string | null;
+}
+export async function saveCalendarTokens(employeeId: number, accessToken: string, refreshToken: string, expiry: Date | null): Promise<void> {
+  await getPool().query(
+    `INSERT INTO calendar_tokens (employee_id, access_token, refresh_token, expiry) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (employee_id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_token = EXCLUDED.refresh_token, expiry = EXCLUDED.expiry`,
+    [employeeId, accessToken, refreshToken, expiry]
+  );
+}
+export async function getCalendarTokens(employeeId: number): Promise<CalendarTokens | null> {
+  const r = await getPool().query<CalendarTokens>(`SELECT employee_id, access_token, refresh_token, expiry FROM calendar_tokens WHERE employee_id = $1`, [employeeId]);
+  return r.rows[0] ?? null;
+}
+export async function listAllCalendarEmployees(): Promise<number[]> {
+  const r = await getPool().query<{ employee_id: number }>(`SELECT employee_id FROM calendar_tokens`);
+  return r.rows.map((x) => x.employee_id);
+}
+export interface CalendarEventRow {
+  id: number;
+  employee_id: number;
+  event_id: string;
+  title: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  meeting_type: string | null;
+  attendee_domains: unknown;
+  date: string;
+}
+export async function upsertCalendarEvent(args: { employeeId: number; eventId: string; title: string | null; startTime: Date | null; endTime: Date | null; meetingType: string; attendeeDomains: string[]; date: string }): Promise<void> {
+  await getPool().query(
+    `INSERT INTO calendar_events (employee_id, event_id, title, start_time, end_time, meeting_type, attendee_domains, date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (employee_id, event_id) DO UPDATE SET
+       title = EXCLUDED.title, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time,
+       meeting_type = EXCLUDED.meeting_type, attendee_domains = EXCLUDED.attendee_domains, date = EXCLUDED.date`,
+    [args.employeeId, args.eventId, args.title, args.startTime, args.endTime, args.meetingType, JSON.stringify(args.attendeeDomains), args.date]
+  );
+}
+export async function getCalendarEvents(employeeId: number, date: string): Promise<CalendarEventRow[]> {
+  const r = await getPool().query<CalendarEventRow>(`SELECT * FROM calendar_events WHERE employee_id = $1 AND date = $2 ORDER BY start_time ASC`, [employeeId, date]);
+  return r.rows;
+}
+export async function getAllCalendarEvents(date: string): Promise<Array<CalendarEventRow & { employee_name: string }>> {
+  const r = await getPool().query<CalendarEventRow & { employee_name: string }>(
+    `SELECT c.*, COALESCE(e.name,'(未紐づけ)') AS employee_name FROM calendar_events c LEFT JOIN employees e ON e.id = c.employee_id WHERE c.date = $1 ORDER BY c.start_time ASC`,
+    [date]
+  );
+  return r.rows;
 }
 
 export type MonitoringAction = 'start' | 'stop';

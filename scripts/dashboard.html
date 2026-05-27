@@ -175,8 +175,10 @@
   <button class="tab active" onclick="showPage('today',this)">今日</button>
   <button class="tab" onclick="showPage('week',this)">週間</button>
   <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
+  <button class="tab" onclick="showPage('score',this)">&#x1F4CA; スコア</button>
   <button class="tab" id="teamTab" onclick="showPage('team',this)">&#x1F465; チーム</button>
   <button class="tab" id="usersTab" style="display:none" onclick="showPage('users',this)">&#x1F464; ユーザー管理</button>
+  <button class="tab" id="rulesTab" style="display:none" onclick="showPage('rules',this)">&#x2696;&#xFE0F; ルール管理</button>
   <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
   <button class="tab" onclick="showPage('settings',this)">⚙️ 設定</button>
 </nav>
@@ -227,6 +229,10 @@
     <div class="section-title">&#x1F4CB; オンボーディング進捗</div>
     <div id="onboardProgressList"></div>
   </div>
+  <div id="teamScoresSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x1F4CA; 全社員スコア一覧（今日）</div>
+    <div id="teamScoresGrid"></div>
+  </div>
   <div id="monitoringLogsSection" class="section" style="display:none;margin-bottom:16px">
     <div class="section-title">&#x23F8; モニタリング停止履歴</div>
     <div id="monitoringLogsBody"></div>
@@ -244,6 +250,28 @@
       <thead><tr><th>名前</th><th>メール</th><th>ロール</th><th>最終ログイン</th><th style="text-align:right">操作</th></tr></thead>
       <tbody id="userTableBody"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
     </table>
+  </div>
+</div>
+<div id="page-score" class="page">
+  <div class="action-bar">
+    <button class="btn btn-primary" id="recalcScoreBtn" onclick="recalcScore()">&#x1F504; 再計算</button>
+    <span id="scoreStatus" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+  <div id="scoreContent"><div class="empty">読み込み中…</div></div>
+  <div class="section" style="margin-top:16px">
+    <div class="section-title">過去30日 スコア推移</div>
+    <div style="height:240px;position:relative"><canvas id="scoreLineChart"></canvas></div>
+  </div>
+</div>
+<div id="page-rules" class="page">
+  <div id="rulesContent"><div class="empty">読み込み中…</div></div>
+  <div class="section" style="margin-top:16px">
+    <div class="section-title">スコアリング重み</div>
+    <div style="font-size:13px;color:var(--muted)">ミッション適合度 × 0.5 / 雑務排除 × 0.3 / AI化進捗 × 0.2</div>
+  </div>
+  <div class="section">
+    <div class="section-title">修正履歴</div>
+    <div id="rulesHistory"><div class="empty">読み込み中…</div></div>
   </div>
 </div>
 <div id="page-privacy" class="page">
@@ -264,6 +292,20 @@
   <div id="monitoringControlSection" class="section" style="display:none;margin-bottom:16px">
     <div class="section-title">&#x23F8; モニタリング制御</div>
     <div id="monitoringControlBody"></div>
+  </div>
+  <div id="missionsSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x1F3AF; ミッション設定</div>
+    <div id="missionsList"></div>
+    <div style="display:grid;grid-template-columns:2fr 3fr 80px auto;gap:8px;margin-top:12px;align-items:end">
+      <input id="newMissionTitle" placeholder="タイトル" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit">
+      <input id="newMissionDesc" placeholder="説明（任意）" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit">
+      <input id="newMissionPriority" type="number" min="1" max="9" value="1" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit" title="優先度1〜9">
+      <button class="btn btn-primary" onclick="addMission()">追加</button>
+    </div>
+  </div>
+  <div id="calendarSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x1F4C5; Googleカレンダー連携</div>
+    <div id="calendarBody"></div>
   </div>
   <div id="userSetupSection" class="section" style="display:none;margin-bottom:16px">
     <div class="section-title">&#x1F4BB; PCセットアップ手順</div>
@@ -333,6 +375,19 @@ VALUES ('発行したキー', '社員名', 'メール');</span></div>
         <div class="step-title">動作確認</div>
         <div class="step-desc">インストール完了後、5分以内にチームタブに社員のデータが表示されれば完了です</div>
         <div style="font-size:13px;color:var(--text);margin-top:6px">&#x2705; チームタブ → 社員名が表示され、稼働時間が増えていけば正常です</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-body">
+        <div class="step-title">Google Workspace OAuth 設定確認</div>
+        <ol style="font-size:13px;color:var(--text);margin-left:20px;line-height:1.9">
+          <li>Google Cloud Console で OAuth 同意画面設定済み &#x2705;</li>
+          <li>OAuth クライアント ID 作成済み &#x2705;</li>
+          <li>社員がダッシュボード設定タブから「Googleカレンダーを連携する」を押す</li>
+          <li>peco-japan.com の Google アカウントで認証</li>
+          <li>翌朝 8 時に自動同期開始</li>
+        </ol>
       </div>
     </div>
   </div>
@@ -439,7 +494,7 @@ function showPage(name,btn){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.getElementById('page-'+name).classList.add('active');
   if(btn)btn.classList.add('active');
-  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam,settings:loadSettings,users:loadUsers};
+  var loaders={today:loadToday,week:loadWeek,insight:loadInsight,privacy:loadPrivacy,team:loadTeam,settings:loadSettings,users:loadUsers,score:loadScore,rules:loadRules};
   if(loaders[name])loaders[name]();
 }
 
@@ -583,6 +638,7 @@ async function loadTeam(){
     mockB.style.display=d.mock?'block':'none';
     lastTeamData=d;
     loadOnboardingProgress();
+    loadTeamScores();
     loadMonitoringLogs();
     var emps=Array.isArray(d.employees)?d.employees:[];
     var active=0,sumWork=0;
@@ -770,6 +826,8 @@ async function loadSettings(){
   document.getElementById('userSetupSection').style.display=isAdmin?'none':'block';
   if(!isAdmin)loadUserSetup();
   loadMonitoringControl();
+  loadMissionsSection();
+  loadCalendarSection();
   try{
     var r=await fetch('/api/settings');
     var s=await r.json();
@@ -937,6 +995,10 @@ async function loadUserSetup(){
       :'<div class="step-desc">5分後に「今日」タブにデータが表示されれば完了です</div>';
     html+=step(6,'動作確認',s.daemon_installed,false,step6Inner);
 
+    // Step 7: Googleカレンダー連携（連携状態は別途 loadCalendarSection で表示）
+    html+=step(7,'Googleカレンダー連携',false,false,
+      '<div class="step-desc">設定タブ下部の「📅 Googleカレンダー連携」セクションから連携してください</div>');
+
     body.innerHTML=html;
   }catch(err){
     body.innerHTML='<div class="empty" style="color:var(--red)">通信エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
@@ -1023,6 +1085,216 @@ async function loadMonitoringLogs(){
 }
 // testConnection は廃止
 
+var scoreLineChartObj=null;
+
+function scoreColor(n){return n>=80?'#059669':(n>=60?'#D97706':'#DC2626');}
+
+async function loadScore(){
+  var el=document.getElementById('scoreContent');
+  document.getElementById('scoreStatus').textContent='';
+  try{
+    var r=await fetch('/api/score/history');
+    var d=await r.json();
+    var scores=Array.isArray(d.scores)?d.scores:[];
+    // 折れ線
+    var labels=scores.map(function(s){return s.date.slice(5);});
+    var totals=scores.map(function(s){return Number(s.total_score)||0;});
+    if(scoreLineChartObj)scoreLineChartObj.destroy();
+    var ctx=document.getElementById('scoreLineChart');
+    if(ctx){
+      scoreLineChartObj=new Chart(ctx,{
+        type:'line',
+        data:{labels:labels,datasets:[{label:'総合スコア',data:totals,borderColor:'#FCB900',backgroundColor:'rgba(252,185,0,.15)',fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#FCB900'}]},
+        options:{plugins:{legend:{display:false}},scales:{y:{min:0,max:100,grid:{color:'#F3F4F6'},ticks:{color:'#9CA3AF',stepSize:25}},x:{grid:{display:false},ticks:{color:'#9CA3AF',font:{size:11}}}},animation:{duration:300}}
+      });
+    }
+    // 今日（履歴の末尾を初期表示、なければ簡素な未計算カード）
+    var today=scores[scores.length-1];
+    if(today){renderScoreToday(today);}
+    else{el.innerHTML='<div class="empty">今日のスコアはまだありません。「🔄 再計算」を押してください。</div>';}
+  }catch(err){
+    el.innerHTML='<div class="empty" style="color:var(--red)">取得エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
+  }
+}
+
+function renderScoreToday(s){
+  var b=(s.breakdown&&typeof s.breakdown==='object')?s.breakdown:{};
+  var total=Number(s.total_score)||0;
+  var mf=Number(s.mission_fit_score)||0;
+  var wr=Number(s.waste_reduction_score)||0;
+  var ai=Number(s.ai_progress_score)||0;
+  function bar(label,v){
+    var col=scoreColor(v);
+    return '<div class="cat-row"><div class="cat-name">'+esc(label)+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+v+'%;background:'+col+'"></div></div><div class="cat-time">'+v+'</div></div>';
+  }
+  var cls=Array.isArray(b.classifications)?b.classifications:[];
+  var byClass={A:0,B:0,C:0};
+  for(var i=0;i<cls.length;i++){var cc=cls[i];if(byClass[cc.classification]!==undefined)byClass[cc.classification]+=cc.total_minutes||0;}
+  var totalMin=byClass.A+byClass.B+byClass.C||1;
+  function pctRow(label,v,col){
+    var pct=Math.round(v/totalMin*100);
+    return '<div class="cat-row"><div class="cat-name">'+label+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div><div class="cat-time">'+v+'分</div><div class="cat-pct">'+pct+'%</div></div>';
+  }
+  var calA=Array.isArray(b.calendar_analysis)?b.calendar_analysis:[];
+  var calCount={internal:0,external:0,focus:0,missionRelated:0};
+  for(var j=0;j<calA.length;j++){var ce=calA[j];calCount[ce.meeting_type]=(calCount[ce.meeting_type]||0)+1;if(ce.mission_related)calCount.missionRelated++;}
+  var missionLinks=Array.isArray(b.mission_links)?b.mission_links:[];
+  var msHtml=missionLinks.map(function(m){return '<div class="cat-row"><div class="cat-name">'+esc(m.title||('mission#'+m.mission_id))+'</div><div class="bar-wrap"><div class="bar-fill" style="width:'+Math.min(100,Math.round(m.minutes/2))+'%;background:#FCB900"></div></div><div class="cat-time">'+m.minutes+'分</div></div>';}).join('')||'<div class="empty" style="padding:12px">ミッション関連なし</div>';
+  document.getElementById('scoreContent').innerHTML=
+    '<div class="section" style="text-align:center"><div style="font-size:64px;font-weight:800;color:'+scoreColor(total)+'">'+total+'</div><div style="color:var(--muted)">総合スコア（'+s.date+'）</div></div>'+
+    '<div class="section"><div class="section-title">内訳</div>'+bar('ミッション適合度 ×0.5',mf)+bar('雑務排除 ×0.3',wr)+bar('AI化進捗 ×0.2',ai)+'</div>'+
+    '<div class="section"><div class="section-title">業務分類（A/B/C）</div>'+pctRow('A AI化可能',byClass.A,'#059669')+pctRow('B 必須・AI化困難',byClass.B,'#D97706')+pctRow('C 不要・AI化困難',byClass.C,'#DC2626')+'</div>'+
+    '<div class="section"><div class="section-title">カレンダーMTG分析</div><div style="font-size:13px;color:var(--muted)">社内 '+calCount.internal+' / 社外 '+calCount.external+' / 集中時間 '+calCount.focus+' / ミッション関連 '+calCount.missionRelated+'</div></div>'+
+    '<div class="section"><div class="section-title">ミッション別貢献時間</div>'+msHtml+'</div>';
+}
+
+async function recalcScore(){
+  var btn=document.getElementById('recalcScoreBtn');
+  var st=document.getElementById('scoreStatus');
+  btn.disabled=true;st.innerHTML='<span class="spinner"></span> 計算中…';
+  try{
+    var r=await fetch('/api/score/today');
+    var d=await r.json();
+    if(!r.ok){st.innerHTML='<span style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</span>';return;}
+    renderScoreToday(d);
+    loadScore(); // 折れ線も更新
+    st.innerHTML='<span style="color:var(--green)">&#x2705; 再計算しました</span>';
+  }catch(err){st.innerHTML='<span style="color:var(--red)">'+esc(err&&err.message?err.message:String(err))+'</span>';}
+  finally{btn.disabled=false;}
+}
+
+async function loadRules(){
+  if(!currentUser||currentUser.role!=='ADMIN')return;
+  var el=document.getElementById('rulesContent');
+  try{
+    var r=await fetch('/api/admin/classification-rules');
+    var d=await r.json();
+    var rules=Array.isArray(d.rules)?d.rules:[];
+    if(rules.length===0){el.innerHTML='<div class="section"><div class="empty">分類ルールはまだありません（スコア計算時に Claude が自動生成）</div></div>';}
+    else{
+      el.innerHTML='<div class="section"><div class="section-title">分類ルール一覧</div>'+
+        '<table class="user-table"><thead><tr><th>アプリ</th><th>カテゴリ</th><th>分類</th><th>理由</th><th style="text-align:right">操作</th></tr></thead><tbody>'+
+        rules.map(function(rr){
+          var clsBadge=rr.classification==='A'?'<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700">A</span>'
+            :rr.classification==='B'?'<span style="background:#FED7AA;color:#9A3412;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700">B</span>'
+            :'<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700">C</span>';
+          return '<tr><td>'+esc(rr.app_name)+'</td><td>'+esc(rr.category)+'</td><td>'+clsBadge+'</td><td style="color:var(--muted);font-size:12px">'+esc(rr.reason||'-')+'</td>'+
+            '<td style="text-align:right"><button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="editRule('+rr.id+',\\''+esc(rr.classification)+'\\')">修正</button></td></tr>';
+        }).join('')+'</tbody></table></div>';
+    }
+    // 履歴
+    var hr=await fetch('/api/admin/classification-history');
+    var hd=await hr.json();
+    var hist=Array.isArray(hd.history)?hd.history:[];
+    if(hist.length===0){document.getElementById('rulesHistory').innerHTML='<div class="empty">修正履歴はありません</div>';return;}
+    document.getElementById('rulesHistory').innerHTML='<table class="user-table"><thead><tr><th>日時</th><th>アプリ/カテゴリ</th><th>変更</th><th>理由</th><th>修正者</th></tr></thead><tbody>'+
+      hist.map(function(h){
+        var dt=new Date(h.created_at).toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+        return '<tr><td style="color:var(--muted);font-size:12px">'+dt+'</td><td>'+esc(h.app_name||'-')+' / '+esc(h.category||'-')+'</td><td>'+esc(h.old_classification||'-')+' → <strong>'+esc(h.new_classification)+'</strong></td><td style="color:var(--muted);font-size:12px">'+esc(h.reason||'-')+'</td><td style="font-size:12px">'+esc(h.modifier_name)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }catch(err){el.innerHTML='<div class="empty" style="color:var(--red)">取得エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';}
+}
+
+async function editRule(id,current){
+  var cls=prompt('新しい分類を入力（A/B/C）\n現在: '+current,current);
+  if(!cls||!['A','B','C'].includes(cls.toUpperCase()))return;
+  var reason=prompt('理由（任意）','');
+  var r=await fetch('/api/admin/classification-rules/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({classification:cls.toUpperCase(),reason:reason||null})});
+  var d=await r.json();
+  if(r.ok&&d.ok){loadRules();}else{alert('修正失敗: '+(d.error||r.status));}
+}
+
+async function loadMissionsSection(){
+  var sec=document.getElementById('missionsSection');
+  if(!currentUser||!currentUser.employee_id){sec.style.display='none';return;}
+  sec.style.display='block';
+  try{
+    var r=await fetch('/api/missions');
+    var d=await r.json();
+    var ms=Array.isArray(d.missions)?d.missions:[];
+    if(ms.length===0){document.getElementById('missionsList').innerHTML='<div class="empty">ミッション未設定</div>';return;}
+    document.getElementById('missionsList').innerHTML=ms.map(function(m){
+      return '<div class="settings-row"><div><div class="settings-label">[優先度'+m.priority+'] '+esc(m.title)+'</div>'+
+        (m.description?'<div class="settings-desc">'+esc(m.description)+'</div>':'')+'</div>'+
+        '<div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="editMission('+m.id+',\\''+esc(m.title).replace(/\\\\/g,"\\\\\\\\").replace(/'/g,"\\\\'")+'\\','+m.priority+')">編集</button>'+
+        '<button class="btn btn-danger" style="padding:4px 9px;font-size:11px" onclick="delMission('+m.id+')">削除</button></div></div>';
+    }).join('');
+  }catch{sec.style.display='none';}
+}
+
+async function addMission(){
+  var title=document.getElementById('newMissionTitle').value.trim();
+  if(!title){alert('タイトル必須');return;}
+  var description=document.getElementById('newMissionDesc').value.trim();
+  var priority=Number(document.getElementById('newMissionPriority').value)||1;
+  var r=await fetch('/api/missions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,description:description,priority:priority})});
+  var d=await r.json();
+  if(r.ok&&d.ok){
+    document.getElementById('newMissionTitle').value='';
+    document.getElementById('newMissionDesc').value='';
+    document.getElementById('newMissionPriority').value='1';
+    loadMissionsSection();
+  }else{alert('追加失敗: '+(d.error||r.status));}
+}
+async function editMission(id,curTitle,curPriority){
+  var t=prompt('新しいタイトル',curTitle);if(t===null)return;
+  var p=prompt('優先度（1-9）',String(curPriority));if(p===null)return;
+  var r=await fetch('/api/missions/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,priority:Number(p)||1})});
+  var d=await r.json();
+  if(r.ok){loadMissionsSection();}else{alert('編集失敗: '+(d.error||r.status));}
+}
+async function delMission(id){
+  if(!confirm('削除しますか？'))return;
+  var r=await fetch('/api/missions/'+id,{method:'DELETE'});
+  if(r.ok){loadMissionsSection();}else{alert('削除失敗');}
+}
+
+async function loadCalendarSection(){
+  var sec=document.getElementById('calendarSection');
+  if(!currentUser||!currentUser.employee_id){sec.style.display='none';return;}
+  sec.style.display='block';
+  try{
+    var r=await fetch('/api/calendar/events');
+    var d=await r.json();
+    var connected=!!d.connected;
+    var events=Array.isArray(d.events)?d.events:[];
+    var html=connected
+      ?'<div style="color:var(--green);font-weight:600;margin-bottom:8px">&#x2705; 連携済み</div>'+
+        '<div style="font-size:13px;color:var(--muted);margin-bottom:8px">今日のイベント: '+events.length+' 件</div>'+
+        '<button class="btn btn-primary" onclick="syncCalendarNow()">&#x1F504; 今すぐ同期</button>'
+      :'<a class="btn btn-primary" id="calAuthLink" href="#" onclick="event.preventDefault();connectCalendar()">&#x1F517; Googleカレンダーを連携する</a>';
+    document.getElementById('calendarBody').innerHTML=html;
+  }catch{sec.style.display='none';}
+}
+async function connectCalendar(){
+  try{var r=await fetch('/api/calendar/auth');var d=await r.json();if(d.url){window.location.href=d.url;}else{alert('URL取得失敗');}}
+  catch(e){alert('エラー: '+(e&&e.message?e.message:String(e)));}
+}
+async function syncCalendarNow(){
+  var r=await fetch('/api/calendar/sync');var d=await r.json();
+  if(r.ok&&d.ok){alert('同期完了: '+d.count+' 件');loadCalendarSection();}
+  else{alert('同期失敗: '+(d.error||r.status));}
+}
+
+async function loadTeamScores(){
+  var sec=document.getElementById('teamScoresSection');
+  if(!currentUser||currentUser.role!=='ADMIN'){sec.style.display='none';return;}
+  try{
+    var r=await fetch('/api/admin/scores');
+    var d=await r.json();
+    var scores=Array.isArray(d.scores)?d.scores:[];
+    sec.style.display='block';
+    if(scores.length===0){document.getElementById('teamScoresGrid').innerHTML='<div class="empty">今日のスコアはまだありません</div>';return;}
+    document.getElementById('teamScoresGrid').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">'+
+      scores.map(function(s){
+        var total=Number(s.total_score)||0;
+        return '<div class="section clickable" style="margin-bottom:0;padding:14px;text-align:center" onclick="alert(\\''+esc(s.employee_name)+' \\\\n総合: '+total+'\\\\n適合度: '+(s.mission_fit_score||0)+'\\\\n排除: '+(s.waste_reduction_score||0)+'\\\\nAI進捗: '+(s.ai_progress_score||0)+'\\')">'+
+          '<div style="font-size:13px;font-weight:600;margin-bottom:4px">'+esc(s.employee_name)+'</div>'+
+          '<div style="font-size:32px;font-weight:800;color:'+scoreColor(total)+'">'+total+'</div></div>';
+      }).join('')+'</div>';
+  }catch{sec.style.display='none';}
+}
+
 async function generateKey(){
   try{
     var r=await fetch('/api/settings/generate-key',{method:'POST'});
@@ -1089,6 +1361,8 @@ function setLoggedInUi(u){
   if(rt)rt.style.display=isAdmin?'':'none';
   var cu=document.getElementById('createUserBtn');
   if(cu)cu.style.display=isAdmin?'':'none';
+  var rt=document.getElementById('rulesTab');
+  if(rt)rt.style.display=isAdmin?'':'none';
   document.getElementById('forceBanner').style.display=u.must_change_password?'flex':'none';
 }
 function setLoggedOutUi(){

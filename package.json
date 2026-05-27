@@ -24,6 +24,7 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "express": "^5.2.1",
+    "googleapis": "^172.0.0",
     "jose": "^6.2.3",
     "node-cron": "^4.2.1",
     "pg": "^8.21.0"

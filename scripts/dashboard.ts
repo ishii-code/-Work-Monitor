@@ -35,8 +35,27 @@ import {
   recordMonitoringLog,
   getLatestMonitoringStatus,
   listMonitoringLogs,
+  listMissions,
+  listAllMissions,
+  createMission,
+  updateMission,
+  deleteMission,
+  listClassificationRules,
+  updateClassificationRule,
+  listClassificationHistory,
+  getDailyScore,
+  getScoreHistory,
+  getAllTodayScores,
+  getAllScoreHistory,
+  getCalendarTokens,
+  getCalendarEvents,
+  getAllCalendarEvents,
+  listAllCalendarEmployees,
 } from '../lib/cloud-db.js';
 import { createActivityRouter } from '../lib/server.js';
+import { calcDailyScore } from '../lib/scoring.js';
+import { buildAuthUrl, handleOAuthCallback, syncCalendar } from '../lib/calendar.js';
+import cron from 'node-cron';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios') as typeof import('axios').default;
@@ -225,6 +244,157 @@ if (CLOUD_MODE) {
       res.json({ logs });
     } catch (e) {
       res.status(500).json({ error: 'failed', detail: (e instanceof Error ? e.message : '').slice(0, 200) });
+    }
+  });
+
+  // ── Missions ──
+  app.get('/api/missions', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.json({ missions: [] }); return; }
+    try { res.json({ missions: await listMissions(user.employee_id) }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.post('/api/missions', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    const body = (req.body ?? {}) as { title?: unknown; description?: unknown; priority?: unknown };
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (!title) { res.status(400).json({ error: 'title 必須' }); return; }
+    const description = typeof body.description === 'string' ? body.description : null;
+    const priority = typeof body.priority === 'number' ? body.priority : 1;
+    try { res.json({ ok: true, mission: await createMission(user.employee_id, title, description, priority) }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.put('/api/missions/:id', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) { res.status(400).json({ error: 'invalid id' }); return; }
+    const body = (req.body ?? {}) as { title?: unknown; description?: unknown; priority?: unknown; is_active?: unknown };
+    const fields: { title?: string; description?: string | null; priority?: number; is_active?: boolean } = {};
+    if (typeof body.title === 'string') fields.title = body.title;
+    if (body.description === null || typeof body.description === 'string') fields.description = body.description as string | null;
+    if (typeof body.priority === 'number') fields.priority = body.priority;
+    if (typeof body.is_active === 'boolean') fields.is_active = body.is_active;
+    try { const ok = await updateMission(id, user.employee_id, fields); res.json({ ok }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.delete('/api/missions/:id', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    const id = Number(req.params.id);
+    try { const ok = await deleteMission(id, user.employee_id); res.json({ ok }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/admin/missions', requireAuth, requireAdmin, async (_req, res) => {
+    try { res.json({ missions: await listAllMissions() }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+
+  // ── Scores ──
+  app.get('/api/score/today', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    const date = new Date().toLocaleDateString('sv-SE');
+    try {
+      const score = await calcDailyScore(user.employee_id, date);
+      res.json(score);
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : 'failed').slice(0, 300) });
+    }
+  });
+  app.get('/api/score/history', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.json({ scores: [] }); return; }
+    try { res.json({ scores: await getScoreHistory(user.employee_id, 30) }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/admin/scores', requireAuth, requireAdmin, async (_req, res) => {
+    const date = new Date().toLocaleDateString('sv-SE');
+    try { res.json({ scores: await getAllTodayScores(date) }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/admin/scores/history', requireAuth, requireAdmin, async (_req, res) => {
+    try { res.json({ scores: await getAllScoreHistory(30) }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+
+  // ── Classification rules ──
+  app.get('/api/admin/classification-rules', requireAuth, requireAdmin, async (_req, res) => {
+    try { res.json({ rules: await listClassificationRules() }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.put('/api/admin/classification-rules/:id', requireAuth, requireAdmin, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user!;
+    const id = Number(req.params.id);
+    const body = (req.body ?? {}) as { classification?: unknown; reason?: unknown };
+    const cls = typeof body.classification === 'string' ? body.classification : '';
+    if (!['A', 'B', 'C'].includes(cls)) { res.status(400).json({ error: 'classification は A/B/C' }); return; }
+    const reason = typeof body.reason === 'string' ? body.reason : null;
+    try { const ok = await updateClassificationRule(id, cls, reason, user.id); res.json({ ok }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/admin/classification-history', requireAuth, requireAdmin, async (_req, res) => {
+    try { res.json({ history: await listClassificationHistory() }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+
+  // ── Calendar ──
+  app.get('/api/calendar/auth', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    try {
+      const url = buildAuthUrl(String(user.employee_id));
+      res.json({ url });
+    } catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/calendar/callback', async (req, res) => {
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    const employeeId = Number(state);
+    if (!code || !Number.isFinite(employeeId)) { res.status(400).send('invalid callback'); return; }
+    try {
+      await handleOAuthCallback(code, employeeId);
+      res.redirect('/');
+    } catch (e) {
+      res.status(500).send('OAuth failed: ' + (e instanceof Error ? e.message : '').slice(0, 200));
+    }
+  });
+  app.get('/api/calendar/sync', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.status(400).json({ error: 'employee_id 未紐づけ' }); return; }
+    const date = new Date().toLocaleDateString('sv-SE');
+    try { const count = await syncCalendar(user.employee_id, date); res.json({ ok: true, count }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/calendar/events', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user?.employee_id) { res.json({ events: [], connected: false }); return; }
+    const date = new Date().toLocaleDateString('sv-SE');
+    try {
+      const tokens = await getCalendarTokens(user.employee_id);
+      const events = await getCalendarEvents(user.employee_id, date);
+      res.json({ events, connected: !!tokens });
+    } catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+  app.get('/api/admin/calendar/events', requireAuth, requireAdmin, async (_req, res) => {
+    const date = new Date().toLocaleDateString('sv-SE');
+    try { res.json({ events: await getAllCalendarEvents(date) }); }
+    catch (e) { res.status(500).json({ error: (e instanceof Error ? e.message : '').slice(0, 200) }); }
+  });
+
+  // ── Daily 08:00 cron: 全社員のカレンダー同期 ──
+  cron.schedule('0 8 * * *', async () => {
+    const date = new Date().toLocaleDateString('sv-SE');
+    try {
+      const emps = await listAllCalendarEmployees();
+      for (const empId of emps) {
+        try { await syncCalendar(empId, date); }
+        catch (e) { console.error('[cron calendar sync] emp=' + empId + ' failed:', e instanceof Error ? e.message : String(e)); }
+      }
+      console.log(`[cron] calendar sync done for ${emps.length} employees`);
+    } catch (e) {
+      console.error('[cron calendar sync] fatal:', e instanceof Error ? e.message : String(e));
     }
   });
 
