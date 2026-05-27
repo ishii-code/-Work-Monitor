@@ -175,7 +175,7 @@
   <button class="tab active" onclick="showPage('today',this)">今日</button>
   <button class="tab" onclick="showPage('week',this)">週間</button>
   <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
-  <button class="tab" onclick="showPage('team',this)">&#x1F465; チーム</button>
+  <button class="tab" id="teamTab" onclick="showPage('team',this)">&#x1F465; チーム</button>
   <button class="tab" id="usersTab" style="display:none" onclick="showPage('users',this)">&#x1F464; ユーザー管理</button>
   <button class="tab" onclick="showPage('privacy',this)">プライバシー</button>
   <button class="tab" onclick="showPage('settings',this)">⚙️ 設定</button>
@@ -223,12 +223,16 @@
   <div id="teamMockBanner" style="display:none;background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:12px;color:#92400E">
     &#x1F9EA; モックデータを表示中（CLOUD_API_URL 未設定）
   </div>
+  <div id="onboardProgressSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x1F4CB; オンボーディング進捗</div>
+    <div id="onboardProgressList"></div>
+  </div>
   <div class="stat-row" id="teamStatRow"></div>
   <div id="teamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px"></div>
 </div>
 <div id="page-users" class="page">
   <div class="action-bar">
-    <button class="btn btn-primary" onclick="openCreateUserModal()">&#x2795; 新規ユーザー作成</button>
+    <button class="btn btn-primary" id="createUserBtn" onclick="openCreateUserModal()">&#x2795; 新規ユーザー作成</button>
     <span id="usersStatus" style="font-size:12px;color:var(--muted)"></span>
   </div>
   <div class="section"><div class="section-title">ユーザー一覧</div>
@@ -256,6 +260,10 @@
       <button class="btn btn-primary" id="testBtn" onclick="testConnection()">&#x1F50C; 接続テスト</button>
       <span id="testResult" style="font-size:12px;color:var(--muted)"></span>
     </div>
+  </div>
+  <div id="userSetupSection" class="section" style="display:none;margin-bottom:16px">
+    <div class="section-title">&#x1F4BB; PCセットアップ手順</div>
+    <div id="userSetupBody"></div>
   </div>
   <div id="onboardSection" class="section" style="display:none;margin-bottom:16px">
     <div class="section-title">&#x1F465; 社員PC導入手順</div>
@@ -346,7 +354,7 @@ VALUES ('発行したキー', '社員名', 'メール');</span></div>
   </div>
   <div class="section">
     <div class="section-title">データ管理</div>
-    <div class="settings-row">
+    <div class="settings-row" id="resetTodayRow">
       <div><div class="settings-label">今日のデータをリセット</div><div class="settings-desc">本日分の活動記録をすべて削除します</div></div>
       <button class="btn btn-danger" onclick="resetToday()">削除</button>
     </div>
@@ -570,6 +578,7 @@ async function loadTeam(){
     warn.style.display='none';
     mockB.style.display=d.mock?'block':'none';
     lastTeamData=d;
+    loadOnboardingProgress();
     var emps=Array.isArray(d.employees)?d.employees:[];
     var active=0,sumWork=0;
     for(var i=0;i<emps.length;i++){
@@ -751,6 +760,10 @@ async function createProject(idx){
 }
 
 async function loadSettings(){
+  var isAdmin=currentUser&&currentUser.role==='ADMIN';
+  document.getElementById('onboardSection').style.display=isAdmin?'block':'none';
+  document.getElementById('userSetupSection').style.display=isAdmin?'none':'block';
+  if(!isAdmin)loadUserSetup();
   try{
     var r=await fetch('/api/settings');
     var s=await r.json();
@@ -762,15 +775,104 @@ async function loadSettings(){
       {k:'ANTHROPIC_API_KEY',v:pill(s.anthropic_api_key_set,s.anthropic_api_key_set?'':'AI提案が使えません'),desc:'AI提案生成に使用'},
       {k:'SLACK_WEBHOOK_URL',v:pill(s.slack_webhook_set,s.slack_webhook_set?'':'任意'),desc:'日報送信先（任意）'},
     ];
+    // カード形式（display ズレ対策）
     document.getElementById('settingsStatus').innerHTML=
-      '<div style="display:flex;flex-direction:column;gap:0">'+rows.map(function(r){
-        return '<div class="settings-row"><div><div class="settings-label">'+esc(r.k)+'</div><div class="settings-desc">'+esc(r.desc)+'</div></div><div>'+r.v+'</div></div>';
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">'+rows.map(function(r){
+        return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
+            '<div class="settings-label" style="font-family:ui-monospace,monospace;font-size:12px">'+esc(r.k)+'</div>'+r.v+
+          '</div>'+
+          '<div class="settings-desc">'+esc(r.desc)+'</div>'+
+        '</div>';
       }).join('')+'</div>';
-    var ob=document.getElementById('onboardSection');
-    var isAdmin=currentUser&&currentUser.role==='ADMIN';
-    ob.style.display=isAdmin?'block':'none';
   }catch(err){
     document.getElementById('settingsStatus').innerHTML='<div class="empty" style="color:var(--red)">取得エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
+  }
+}
+
+function turnBadge(t){
+  if(t==='complete')return '<span style="background:#D1FAE5;color:#065F46;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:700">&#x2705; 完了</span>';
+  if(t==='admin')return '<span style="background:#FED7AA;color:#9A3412;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:700">&#x1F468;&#x200D;&#x1F4BC; 管理者待ち</span>';
+  return '<span style="background:#DBEAFE;color:#1E40AF;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:700">&#x1F464; 社員待ち</span>';
+}
+function stepIcon(done){return done?'<span style="color:var(--green)">&#x2705;</span>':'<span style="color:var(--faint)">&#x23F3;</span>';}
+
+async function loadOnboardingProgress(){
+  var sec=document.getElementById('onboardProgressSection');
+  if(!currentUser||currentUser.role!=='ADMIN'){sec.style.display='none';return;}
+  try{
+    var r=await fetch('/api/admin/onboarding');
+    if(!r.ok){sec.style.display='none';return;}
+    var list=await r.json();
+    if(!Array.isArray(list)||list.length===0){sec.style.display='none';return;}
+    sec.style.display='block';
+    var html=list.map(function(u){
+      var s=u.steps||{};
+      return '<div style="padding:10px 0;border-bottom:1px solid #F3F4F6;display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center">'+
+        '<div><div style="font-size:13px;font-weight:600">'+esc(u.name)+'</div><div style="font-size:11px;color:var(--muted)">'+esc(u.email)+'</div></div>'+
+        '<div style="font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap">'+
+          stepIcon(s.account_created)+' アカウント &rarr; '+
+          stepIcon(s.employee_registered)+' DB登録 &rarr; '+
+          stepIcon(s.employee_linked)+' 紐づけ &rarr; '+
+          stepIcon(s.daemon_installed)+' デーモン'+
+        '</div>'+
+        '<div>'+turnBadge(u.current_turn)+'</div>'+
+      '</div>';
+    }).join('');
+    document.getElementById('onboardProgressList').innerHTML=html;
+  }catch{sec.style.display='none';}
+}
+
+async function loadUserSetup(){
+  var body=document.getElementById('userSetupBody');
+  body.innerHTML='<div class="empty">読み込み中…</div>';
+  try{
+    var r=await fetch('/api/onboarding/me');
+    if(!r.ok){body.innerHTML='<div class="empty" style="color:var(--red)">進捗取得失敗</div>';return;}
+    var d=await r.json();
+    if(!d){body.innerHTML='<div class="empty">進捗データがありません</div>';return;}
+    var s=d.steps||{};
+    var CLOUD_API_URL='https://work-monitor-api-842623777962.asia-northeast1.run.app';
+    var INSTALL_CMD='curl -fsSL https://raw.githubusercontent.com/ishii-code/-Work-Monitor/main/install.sh | bash';
+    function step(n,title,done,inner){
+      var bg=done?'#ECFDF5':'#FFFFFF';
+      var num=done?'<div class="step-num" style="background:var(--green);color:#fff">&#x2713;</div>':'<div class="step-num">'+n+'</div>';
+      return '<div class="step" style="background:'+bg+';border-radius:8px;padding:14px;margin-bottom:8px;align-items:flex-start">'+num+
+        '<div class="step-body"><div class="step-title">'+title+(done?' <span style="color:var(--green);font-size:11px">✅ 完了</span>':'')+'</div>'+inner+'</div></div>';
+    }
+    var html='';
+    html+=step(1,'アカウント作成',s.account_created,'<div class="step-desc">管理者によってアカウントが作成されています</div>');
+    html+=step(2,'管理者がDBに登録',s.employee_registered,
+      s.employee_registered?'<div class="step-desc">DB登録済み</div>'
+        :'<div class="step-desc" style="color:var(--orange)">⏳ 管理者に依頼中... メールアドレスで登録されるまでお待ちください</div>');
+    var step3Inner;
+    if(s.daemon_installed){step3Inner='<div class="step-desc">インストール済み・データ受信中</div>';}
+    else if(!s.employee_registered){step3Inner='<div class="step-desc" style="color:var(--faint)">Step 2 完了後にインストール可能</div>';}
+    else{
+      step3Inner='<div class="step-desc">以下のコマンドを Mac ターミナルに貼り付けて実行してください</div>'+
+        '<div class="code-block" style="margin-top:6px"><button class="copy-btn" onclick="copyText(\'usInstall\',this)">コピー</button><span id="usInstall">'+esc(INSTALL_CMD)+'</span></div>'+
+        '<div style="font-size:12px;color:var(--muted);margin-top:10px;margin-bottom:4px">CLOUD_API_URL:</div>'+
+        '<div class="code-block"><button class="copy-btn" onclick="copyText(\'usCloud\',this)">コピー</button><span id="usCloud">'+esc(CLOUD_API_URL)+'</span></div>'+
+        '<div style="font-size:12px;color:var(--muted);margin-top:10px">EMPLOYEE_API_KEY: <span style="color:var(--text)">管理者から受け取ったキーを入力してください</span></div>';
+    }
+    html+=step(3,'インストール',s.daemon_installed,step3Inner);
+    var step4Inner;
+    if(s.daemon_installed){step4Inner='<div class="step-desc">アクセシビリティ許可済み</div>';}
+    else{step4Inner='<div class="step-desc">アプリ名を取得するために必要です</div>'+
+      '<ol style="font-size:13px;color:var(--text);margin-left:20px;line-height:1.9">'+
+        '<li>Mac の「システム設定」を開く</li>'+
+        '<li>「プライバシーとセキュリティ」→「アクセシビリティ」</li>'+
+        '<li>左下の「+」ボタンをクリック</li>'+
+        '<li><code>/usr/local/bin/node</code>（または <code>which node</code> で表示されるパス）を追加してオン</li>'+
+      '</ol>';}
+    html+=step(4,'アクセシビリティ許可',s.daemon_installed,step4Inner);
+    var step5Inner=s.daemon_installed
+      ?'<div class="step-desc" style="color:var(--green)">✅ データ受信中（最終: '+esc(d.last_activity||'-')+'）</div>'
+      :'<div class="step-desc">5分後に「今日」タブを確認してください</div>';
+    html+=step(5,'動作確認',s.daemon_installed,step5Inner);
+    body.innerHTML=html;
+  }catch(err){
+    body.innerHTML='<div class="empty" style="color:var(--red)">通信エラー: '+esc(err&&err.message?err.message:String(err))+'</div>';
   }
 }
 
@@ -854,7 +956,14 @@ function setLoggedInUi(u){
   var rb=document.getElementById('userRole');
   rb.textContent=u.role;
   rb.className='role-badge '+(u.role==='ADMIN'?'admin':'user');
-  document.getElementById('usersTab').style.display=u.role==='ADMIN'?'':'none';
+  var isAdmin=u.role==='ADMIN';
+  var teamTab=document.getElementById('teamTab');
+  if(teamTab)teamTab.style.display=isAdmin?'':'none';
+  document.getElementById('usersTab').style.display='';
+  var rt=document.getElementById('resetTodayRow');
+  if(rt)rt.style.display=isAdmin?'':'none';
+  var cu=document.getElementById('createUserBtn');
+  if(cu)cu.style.display=isAdmin?'':'none';
   document.getElementById('forceBanner').style.display=u.must_change_password?'flex':'none';
 }
 function setLoggedOutUi(){
@@ -913,20 +1022,25 @@ async function submitChangePassword(){
 }
 async function loadUsers(){
   var body=document.getElementById('userTableBody');
+  var isAdmin=currentUser&&currentUser.role==='ADMIN';
   try{
     var r=await fetch('/api/admin/users');
     var d=await r.json();
     if(!r.ok){body.innerHTML='<tr><td colspan="5" class="empty" style="color:var(--red)">'+esc(d.error||('HTTP '+r.status))+'</td></tr>';return;}
     var users=Array.isArray(d.users)?d.users:[];
+    if(!isAdmin&&currentUser)users=users.filter(function(u){return u.id===currentUser.id;});
     if(users.length===0){body.innerHTML='<tr><td colspan="5" class="empty">ユーザーがいません</td></tr>';return;}
     body.innerHTML=users.map(function(u){
       var ll=u.last_login_at?new Date(u.last_login_at).toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
       var roleBadge='<span class="role-badge '+(u.role==='ADMIN'?'admin':'user')+'">'+esc(u.role)+'</span>';
       var mcp=u.must_change_password?' <span style="color:var(--orange);font-size:11px">(仮)</span>':'';
       var disableDel=currentUser&&currentUser.id===u.id?' disabled title="自分自身は削除不可"':'';
+      var actions=isAdmin
+        ?'<button class="btn btn-green" style="padding:4px 9px;font-size:11px" onclick="resetUserPw('+u.id+')">PW再発行</button> '+
+          '<button class="btn btn-danger" style="padding:4px 9px;font-size:11px" onclick="deleteUserById('+u.id+')"'+disableDel+'>削除</button>'
+        :'<span style="color:var(--faint);font-size:11px">—</span>';
       return '<tr><td>'+esc(u.name)+mcp+'</td><td style="color:var(--muted)">'+esc(u.email)+'</td><td>'+roleBadge+'</td><td style="color:var(--muted);font-size:12px">'+ll+'</td>'+
-        '<td style="text-align:right;white-space:nowrap"><button class="btn btn-green" style="padding:4px 9px;font-size:11px" onclick="resetUserPw('+u.id+')">PW再発行</button> '+
-        '<button class="btn btn-danger" style="padding:4px 9px;font-size:11px" onclick="deleteUserById('+u.id+')"'+disableDel+'>削除</button></td></tr>';
+        '<td style="text-align:right;white-space:nowrap">'+actions+'</td></tr>';
     }).join('');
   }catch(err){body.innerHTML='<tr><td colspan="5" class="empty" style="color:var(--red)">通信エラー</td></tr>';}
 }

@@ -20,6 +20,7 @@ import {
   createUserAdminRouter,
   createMonitorRouter,
   requireAuth,
+  requireAdmin,
   type WmUser,
 } from '../lib/auth.js';
 import {
@@ -27,6 +28,7 @@ import {
   getMonitorOverview,
   getDailySummaryFromCloud,
   getWeeklySummaryFromCloud,
+  getOnboardingStatus,
 } from '../lib/cloud-db.js';
 import { createActivityRouter } from '../lib/server.js';
 
@@ -112,6 +114,30 @@ if (CLOUD_MODE) {
   app.use(createAuthRouter());
   app.use(createUserAdminRouter());
   app.use(createMonitorRouter());
+
+  app.get('/api/admin/onboarding', requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      res.json(await getOnboardingStatus());
+    } catch (e) {
+      const m = e instanceof Error ? e.message : 'unknown';
+      res.status(500).json({ error: 'onboarding fetch failed', detail: m.slice(0, 200) });
+    }
+  });
+
+  app.get('/api/onboarding/me', requireAuth, async (req, res) => {
+    const user = (req as unknown as { user?: WmUser }).user;
+    if (!user) {
+      res.status(401).json({ error: 'unauthenticated' });
+      return;
+    }
+    try {
+      const rows = await getOnboardingStatus(user.id);
+      res.json(rows[0] ?? null);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : 'unknown';
+      res.status(500).json({ error: 'onboarding fetch failed', detail: m.slice(0, 200) });
+    }
+  });
 }
 
 // ── API ──────────────────────────────────────────────

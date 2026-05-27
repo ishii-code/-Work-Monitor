@@ -307,6 +307,72 @@ export async function getDailySummaryFromCloud(
   };
 }
 
+export interface OnboardingStep {
+  userId: number;
+  name: string;
+  email: string;
+  steps: {
+    account_created: boolean;
+    employee_registered: boolean;
+    employee_linked: boolean;
+    daemon_installed: boolean;
+  };
+  current_turn: 'admin' | 'user' | 'complete';
+  last_activity: string | null;
+}
+
+function deriveTurn(s: OnboardingStep['steps']): OnboardingStep['current_turn'] {
+  if (!s.account_created) return 'admin';
+  if (!s.employee_registered) return 'admin';
+  if (!s.employee_linked) return 'admin';
+  if (!s.daemon_installed) return 'user';
+  return 'complete';
+}
+
+export async function getOnboardingStatus(userId?: number): Promise<OnboardingStep[]> {
+  const p = getPool();
+  const filter = userId ? 'WHERE u.id = $1' : '';
+  const params = userId ? [userId] : [];
+  const r = await p.query<{
+    user_id: number;
+    name: string;
+    email: string;
+    employee_id: number | null;
+    employee_registered: boolean;
+    last_activity: string | null;
+  }>(
+    `SELECT
+       u.id AS user_id,
+       u.name,
+       u.email,
+       u.employee_id,
+       CASE WHEN e.id IS NOT NULL THEN true ELSE false END AS employee_registered,
+       (SELECT MAX(date) FROM cloud_activities
+          WHERE employee_id = u.employee_id) AS last_activity
+     FROM wm_users u
+     LEFT JOIN employees e ON lower(e.email) = lower(u.email)
+     ${filter}
+     ORDER BY u.created_at ASC`,
+    params
+  );
+  return r.rows.map((row) => {
+    const steps = {
+      account_created: true,
+      employee_registered: !!row.employee_registered,
+      employee_linked: row.employee_id !== null,
+      daemon_installed: row.last_activity !== null,
+    };
+    return {
+      userId: row.user_id,
+      name: row.name,
+      email: row.email,
+      steps,
+      current_turn: deriveTurn(steps),
+      last_activity: row.last_activity,
+    };
+  });
+}
+
 export async function getWeeklySummaryFromCloud(
   employeeId: number
 ): Promise<CloudDailySummary[]> {
