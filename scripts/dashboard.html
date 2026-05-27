@@ -174,7 +174,6 @@
 <nav>
   <button class="tab active" onclick="showPage('today',this)">今日</button>
   <button class="tab" onclick="showPage('week',this)">週間</button>
-  <button class="tab" onclick="showPage('insight',this)">AIレポート</button>
   <button class="tab" onclick="showPage('score',this)">&#x1F4CA; スコア</button>
   <button class="tab" id="teamTab" onclick="showPage('team',this)">&#x1F465; チーム</button>
   <button class="tab" id="usersTab" style="display:none" onclick="showPage('users',this)">&#x1F464; ユーザー管理</button>
@@ -210,13 +209,6 @@
     <div class="section-title">効率スコア推移</div>
     <div style="height:140px;position:relative"><canvas id="scoreChart"></canvas></div>
   </div>
-</div>
-<div id="page-insight" class="page">
-  <div class="action-bar">
-    <button class="btn btn-primary" id="reportBtn" onclick="generateReport()">&#x25B6; 今すぐ日報生成 &amp; Slack送信</button>
-    <span id="reportStatus" style="font-size:12px;color:var(--muted)"></span>
-  </div>
-  <div id="insightContent"></div>
 </div>
 <div id="page-team" class="page">
   <div id="teamWarning" style="display:none;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#991B1B">
@@ -400,16 +392,6 @@ VALUES ('発行したキー', '社員名', 'メール');</span></div>
       <button class="btn btn-primary" onclick="submitChangePassword()">変更</button>
     </div>
     <div id="pwStatus" style="font-size:12px;margin-top:8px;min-height:16px"></div>
-  </div>
-  <div class="section" style="margin-bottom:16px">
-    <div class="section-title">デーモン制御</div>
-    <div class="settings-row">
-      <div><div class="settings-label">モニタリングデーモン</div><div class="settings-desc">10秒ごとにアクティブウィンドウを記録</div></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-green" onclick="startDaemon()">&#x25B6; 開始</button>
-        <button class="btn btn-danger" onclick="stopDaemon()">&#x25A0; 停止</button>
-      </div>
-    </div>
   </div>
   <div class="section">
     <div class="section-title">データ管理</div>
