@@ -9,7 +9,6 @@ data
 *.tsbuildinfo
 .env
 *.db
-scripts
 public
 README.md
 install.sh
