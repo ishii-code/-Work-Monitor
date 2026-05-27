@@ -9,7 +9,6 @@ data
 *.tsbuildinfo
 .env
 *.db
-public
 README.md
 install.sh
 start-daemon.sh

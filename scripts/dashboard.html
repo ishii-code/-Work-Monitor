@@ -542,7 +542,7 @@ async function loadTeam(){
   var mockB=document.getElementById('teamMockBanner');
   var statRow=document.getElementById('teamStatRow');
   try{
-    var r=await fetch('/api/admin/monitor');
+    var r=await fetch('/api/monitor');
     var d=await r.json();
     if(!r.ok){
       warn.style.display='block';mockB.style.display='none';
