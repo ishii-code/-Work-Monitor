@@ -1,4 +1,4 @@
-import bcrypt from 'bcryptjs';
+import { hash as bcryptHash, compare as bcryptCompare } from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction, Router as RouterType } from 'express';
 import { Router } from 'express';
@@ -46,11 +46,11 @@ function authSecret(): Uint8Array {
 }
 
 export async function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, 10);
+  return bcryptHash(plain, 10);
 }
 
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(plain, hash);
+  return bcryptCompare(plain, hash);
 }
 
 export function generateTempPassword(): string {
@@ -309,27 +309,33 @@ export function createUserAdminRouter(): RouterType {
   });
 
   router.post('/api/admin/users', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as {
-      email?: unknown; name?: unknown; role?: unknown; employeeId?: unknown;
-    };
-    const email = typeof body.email === 'string' ? body.email.trim() : '';
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const role: Role = body.role === 'ADMIN' ? 'ADMIN' : 'USER';
-    const employeeId = typeof body.employeeId === 'number' && Number.isFinite(body.employeeId) ? body.employeeId : null;
-    if (!email || !name || email.length > 200 || name.length > 100) {
-      res.status(400).json({ error: 'email と name が必須です' });
-      return;
+    try {
+      const body = (req.body ?? {}) as {
+        email?: unknown; name?: unknown; role?: unknown; employeeId?: unknown;
+      };
+      const email = typeof body.email === 'string' ? body.email.trim() : '';
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const role: Role = body.role === 'ADMIN' ? 'ADMIN' : 'USER';
+      const employeeId = typeof body.employeeId === 'number' && Number.isFinite(body.employeeId) ? body.employeeId : null;
+      if (!email || !name || email.length > 200 || name.length > 100) {
+        res.status(400).json({ error: 'email と name が必須です' });
+        return;
+      }
+      const existing = await getUserByEmail(email);
+      if (existing) {
+        res.status(409).json({ error: 'このメールは既に登録されています' });
+        return;
+      }
+      const tempPassword = generateTempPassword();
+      const user = await createUser({
+        email, name, password: tempPassword, role, mustChangePassword: true, employeeId,
+      });
+      res.json({ ok: true, user: publicUser(user), tempPassword });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[POST /api/admin/users] failed:', msg);
+      res.status(500).json({ error: 'user 作成失敗: ' + msg.slice(0, 200) });
     }
-    const existing = await getUserByEmail(email);
-    if (existing) {
-      res.status(409).json({ error: 'このメールは既に登録されています' });
-      return;
-    }
-    const tempPassword = generateTempPassword();
-    const user = await createUser({
-      email, name, password: tempPassword, role, mustChangePassword: true, employeeId,
-    });
-    res.json({ ok: true, user: publicUser(user), tempPassword });
   });
 
   router.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response) => {
